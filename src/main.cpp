@@ -6,5 +6,6 @@ int main() {
   } catch (...) {
     return 1;
   }
+
   return 0;
 }
