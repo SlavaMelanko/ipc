@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Format + lint gate. Runs on staged C++ files only.
-# Enable once per clone: git config core.hooksPath .githooks
+# Enabled automatically by the first CMake configure (see cmake/GitHooks.cmake).
 set -euo pipefail
 
 files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(cpp|h)$' || true)
