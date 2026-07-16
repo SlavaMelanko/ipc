@@ -1,4 +1,4 @@
-# CLAUDE.md
+# Agent Instructions
 
 Guidance for working in this repository. See [README.md](README.md) for the
 project overview.
