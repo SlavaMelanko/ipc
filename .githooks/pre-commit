@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Format + lint gate. Runs on staged C++ files only.
+# Enable once per clone: git config core.hooksPath .githooks
+set -euo pipefail
+
+files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(cpp|h)$' || true)
+
+[[ -z "$files" ]] && exit 0
+
+if ! command -v clang-format >/dev/null; then
+  echo "pre-commit: clang-format not found" >&2
+  exit 1
+fi
+
+echo "pre-commit: clang-format --dry-run --Werror"
+# shellcheck disable=SC2086
+clang-format --dry-run --Werror $files
+
+if command -v clang-tidy >/dev/null; then
+  echo "pre-commit: clang-tidy"
+  # shellcheck disable=SC2086
+  clang-tidy --warnings-as-errors=* $files -- -std=c++23
+else
+  echo "pre-commit: skipping clang-tidy (not installed)" >&2
+fi

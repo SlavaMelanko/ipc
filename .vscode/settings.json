@@ -1,0 +1,10 @@
+{
+  // Use clangd (reads build/compile_commands.json, understands C++23 libc++).
+  // Disable the Microsoft C/C++ IntelliSense engine to avoid conflicts.
+  "C_Cpp.intelliSenseEngine": "disabled",
+  "clangd.arguments": [
+    "--compile-commands-dir=build",
+    "--header-insertion=never",
+    "--clang-tidy"
+  ]
+}
