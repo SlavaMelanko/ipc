@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup
+        run: ./scripts/setup.sh
+
+      - name: Format check
+        run: cmake --build build --target format-check
+
+      - name: Lint
+        run: cmake --build build --target tidy
+
+      - name: Build
+        run: cmake --build build

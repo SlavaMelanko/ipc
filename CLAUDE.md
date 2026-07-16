@@ -13,14 +13,20 @@ project overview.
 
 ## Setup
 
-`./scripts/setup.sh` is the one-shot entry point on macOS: it installs the
-tooling via Homebrew, symlinks `clang-tidy` and `clangd` onto `PATH`, and runs
-the first CMake configure.
+`./scripts/setup.sh` is the one-shot entry point on macOS and apt-based Linux:
+it installs the tooling and runs the first CMake configure.
 
-- The system **Apple Clang** stays the compiler. The Homebrew `llvm` tools
-  (`clang-tidy`, `clangd`) are used only for linting, formatting, and editor
-  tooling — do not put Homebrew `llvm` first on `PATH`, or its `clang++` would
-  shadow Apple's and require extra libc++/libunwind flags.
+- **macOS**: installs via Homebrew and symlinks `clang-tidy`/`clangd` onto
+  `PATH`. The system **Apple Clang** stays the compiler — the Homebrew `llvm`
+  tools are used only for linting, formatting, and editor tooling. Do not put
+  Homebrew `llvm` first on `PATH`, or its `clang++` would shadow Apple's and
+  require extra libc++/libunwind flags.
+- **Linux**: installs via `apt` and pins `gcc-15`/`g++-15` as the compiler
+  (`CC`/`CXX` env vars passed to the CMake configure), since the distro default
+  `gcc`/`g++` may be older and lack C++23 features like `<print>`.
+
+CI (`.github/workflows/ci-ubuntu.yml`) runs the same `setup.sh` on
+`ubuntu-26.04`, so local Linux setup and CI stay identical.
 
 ## Build and run
 
@@ -48,7 +54,8 @@ on staged files only.
 **macOS toolchain note:** `clang-tidy` is invoked with `-- -std=c++23` rather
 than `-p build`. Homebrew `clang-tidy` must use its own libc++ headers; reading
 the compile database (compiler `/usr/bin/c++`) makes it search Apple's SDK and
-fail to find C++23 headers like `<print>`. Keep the standard in sync between
+fail to find C++23 headers like `<print>`. This also works unchanged on Linux,
+so the same invocation is used everywhere. Keep the standard in sync between
 `cmake/CodeQuality.cmake` and `.githooks/pre-commit`.
 
 ## Coding convention

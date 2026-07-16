@@ -17,6 +17,8 @@ link_brew_tool() {
   fi
 }
 
+cmake_env=()
+
 case "$(uname)" in
   Darwin)
     if ! command -v brew >/dev/null; then
@@ -29,8 +31,16 @@ case "$(uname)" in
     link_brew_tool clangd
     ;;
   Linux)
-    echo "Linux setup is not automated yet." >&2
-    echo "Install: cmake, clang-format, clang-tidy, clangd via your package manager." >&2
+    if ! command -v apt-get >/dev/null; then
+      echo "Automated setup supports apt-based distros only." >&2
+      echo "Install: cmake, gcc-15, g++-15, clang-format, clang-tidy, clangd." >&2
+      exit 1
+    fi
+    echo "installing tooling via apt..."
+    sudo apt-get update
+    sudo apt-get install -y cmake gcc-15 g++-15 clang-format clang-tidy clangd
+    # Default apt gcc/g++ may be older than 15; pin explicitly.
+    cmake_env=(CC=gcc-15 CXX=g++-15)
     ;;
   *)
     echo "Unsupported platform: $(uname)" >&2
@@ -39,6 +49,6 @@ case "$(uname)" in
 esac
 
 echo "configuring build (enables the pre-commit hook)..."
-cmake -S . -B build
+env "${cmake_env[@]+"${cmake_env[@]}"}" cmake -S . -B build
 
 echo "done. build with: cmake --build build"

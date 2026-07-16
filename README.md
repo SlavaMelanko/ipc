@@ -15,13 +15,10 @@ outside the first iteration.
 ## Quick start
 
 ```bash
-./scripts/setup.sh      # install tooling and configure the build (macOS)
+./scripts/setup.sh      # install tooling and configure the build (macOS, apt-based Linux)
 cmake --build build
 ./build/ipc
 ```
-
-On Linux, install `cmake`, `clang-format`, `clang-tidy`, and `clangd` via your
-package manager, then run `cmake -S . -B build` before building.
 
 ## Transport strategy
 
