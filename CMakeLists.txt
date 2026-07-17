@@ -14,5 +14,11 @@ include(cmake/CompilerWarnings.cmake)
 add_executable(ipc src/main.cpp)
 ipc_enable_warnings(ipc)
 
+add_library(producer_lib
+  src/producer/command_line_parser.cpp
+)
+target_include_directories(producer_lib PUBLIC src)
+ipc_enable_warnings(producer_lib)
+
 include(cmake/CodeQuality.cmake)
 include(cmake/GitHooks.cmake)
