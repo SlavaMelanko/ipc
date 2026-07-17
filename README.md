@@ -38,13 +38,23 @@ Other transports may follow, each implementing the same interface:
 
 ## Roadmap
 
-- Define the project architecture
-- Design `ITransport`
-- Implement the shared-memory transport
-- Implement synchronization primitives
-- Add unit tests
-- Add a benchmark suite
-- Evaluate additional transport implementations
+Implementation is split into three iterations, each building on the last
+without changing `ITransport`'s public shape:
+
+- [x] Define the project architecture
+- [x] Design `ITransport`
+- [ ] **v1 — vertical slice.** Two CLIs, one mutex-protected SPSC ring,
+      fixed-size sequenced messages, fail-fast `bool` errors, one
+      end-to-end test.
+- [ ] **v2 — robustness and observability.** Interactive control, signal
+      handling, checksums, `sessionId`, crash recovery, stats reporting,
+      richer result types.
+- [ ] **v3 — performance.** Lock-free cross-process atomics, mutex off the
+      per-message fast path — no producer/consumer-visible API change.
+- [ ] Evaluate additional transport implementations
+
+See [CLAUDE.md](CLAUDE.md) for the full architecture and the per-iteration
+implementation plan.
 
 ## Contributing
 
