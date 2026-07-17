@@ -26,7 +26,7 @@ if(CLANG_TIDY_BIN)
   # makes it search Apple's SDK and fail to find C++23 headers like <print>.
   add_custom_target(tidy
     COMMAND ${CLANG_TIDY_BIN} --warnings-as-errors=* ${IPC_SOURCES}
-            -- -std=c++${CMAKE_CXX_STANDARD}
+            -- -x c++ -std=c++${CMAKE_CXX_STANDARD} -I${CMAKE_SOURCE_DIR}/src
     COMMENT "clang-tidy: linting sources"
     VERBATIM)
 endif()
