@@ -13,9 +13,6 @@ include(cmake/CompilerWarnings.cmake)
 
 find_package(Threads REQUIRED)
 
-add_executable(ipc src/main.cpp)
-ipc_enable_warnings(ipc)
-
 add_library(common_lib
   src/common/transport/control_block.cpp
   src/common/transport/mapped_segment.cpp
