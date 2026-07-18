@@ -46,21 +46,6 @@ std::unique_ptr<ITransport> SharedMemoryTransport::AttachConsumer(std::size_t pa
       new SharedMemoryTransport(std::move(*segment), payloadSize, slotCount));
 }
 
-SharedMemoryTransport::SharedMemoryTransport(MappedSegment segment, std::size_t payloadSize,
-                                             std::size_t slotCount)
-    : segment_(std::move(segment)), payloadSize_(payloadSize), slotCount_(slotCount) {}
-
-ControlBlock& SharedMemoryTransport::Control() {
-  return *static_cast<ControlBlock*>(segment_.data());
-}
-
-std::byte* SharedMemoryTransport::SlotAt(std::uint64_t index) {
-  std::size_t stride = SlotStride(payloadSize_);
-  auto* base = static_cast<std::byte*>(segment_.data()) + SlotAreaOffset();
-
-  return base + ((index % slotCount_) * stride);
-}
-
 bool SharedMemoryTransport::Send(const Message& message) {
   if (message.header.payloadSize != payloadSize_) {
     return false;
@@ -126,6 +111,21 @@ bool SharedMemoryTransport::Receive(Message& message) {
   pthread_cond_signal(&control.slotFreeCond);
 
   return true;
+}
+
+SharedMemoryTransport::SharedMemoryTransport(MappedSegment segment, std::size_t payloadSize,
+                                             std::size_t slotCount)
+    : segment_(std::move(segment)), payloadSize_(payloadSize), slotCount_(slotCount) {}
+
+ControlBlock& SharedMemoryTransport::Control() {
+  return *static_cast<ControlBlock*>(segment_.data());
+}
+
+std::byte* SharedMemoryTransport::SlotAt(std::uint64_t index) {
+  std::size_t stride = SlotStride(payloadSize_);
+  auto* base = static_cast<std::byte*>(segment_.data()) + SlotAreaOffset();
+
+  return base + ((index % slotCount_) * stride);
 }
 
 }  // namespace ipc::common

@@ -14,6 +14,8 @@ namespace ipc::common {
 
 namespace {
 
+constexpr mode_t kPermissions = 0600;  // owner read/write, no group/other access
+
 void* Map(int fd, std::size_t size) {
   return mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 }
@@ -63,7 +65,7 @@ MappedSegment::~MappedSegment() {
 }
 
 std::optional<MappedSegment> MappedSegment::Create(const std::string& name, std::size_t size) {
-  int fd = shm_open(name.c_str(), O_RDWR | O_CREAT | O_EXCL, 0600);
+  int fd = shm_open(name.c_str(), O_RDWR | O_CREAT | O_EXCL, kPermissions);
   if (fd == -1) {
     return std::nullopt;
   }
@@ -85,7 +87,7 @@ std::optional<MappedSegment> MappedSegment::Create(const std::string& name, std:
 }
 
 std::optional<MappedSegment> MappedSegment::Attach(const std::string& name, std::size_t size) {
-  int fd = shm_open(name.c_str(), O_RDWR, 0600);
+  int fd = shm_open(name.c_str(), O_RDWR, kPermissions);
   if (fd == -1) {
     return std::nullopt;
   }
