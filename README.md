@@ -3,38 +3,19 @@
 A test project for exploring high-performance inter-process communication (IPC)
 in modern C++.
 
-## Goal
-
-Communicate between a producer and a consumer running as separate processes on
-the same machine, organized around a transport interface so different IPC
-mechanisms can be swapped without changing the producer or consumer logic.
-
-The initial scope is local IPC only. Communication between different machines is
-outside the first iteration.
+A producer and a consumer run as separate processes on the same machine,
+communicating over shared memory through a transport interface, so other IPC
+mechanisms can be swapped in later without changing producer or consumer logic.
+Initial scope is local IPC only.
 
 ## Quick start
 
 ```bash
 ./scripts/setup.sh      # install tooling and configure the build (macOS, apt-based Linux)
 cmake --build build
-./build/ipc
+./build/producer-cli --count 50000 &
+./build/consumer-cli --count 50000
 ```
-
-## Transport strategy
-
-The first implementation uses shared memory: both processes access the same
-physical memory pages, giving low latency, high throughput, and near-zero-copy
-data transfer for high-frequency producer-consumer workloads.
-
-Synchronization is treated as a separate concern, implemented with operating
-system synchronization primitives.
-
-Other transports may follow, each implementing the same interface:
-
-- Memory-mapped file
-- Named pipe (Windows)
-- Unix domain socket (POSIX)
-- TCP (optional, if remote communication becomes necessary)
 
 ## Roadmap
 
@@ -55,8 +36,3 @@ without changing `ITransport`'s public shape:
 
 See [CLAUDE.md](CLAUDE.md) for the full architecture and the per-iteration
 implementation plan.
-
-## Contributing
-
-See [CLAUDE.md](CLAUDE.md) for build, tooling, coding conventions, and
-architectural constraints.

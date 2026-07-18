@@ -31,9 +31,10 @@ CI (`.github/workflows/ci-ubuntu.yml`) runs the same `setup.sh` on
 ## Build and run
 
 ```bash
-cmake -S . -B build     # configure (also enables the pre-commit hook)
-cmake --build build     # build
-./build/ipc             # run
+cmake -S . -B build                       # configure (also enables the pre-commit hook)
+cmake --build build                       # build
+./build/producer-cli --count 50000 &      # run: producer, then consumer
+./build/consumer-cli --count 50000
 ```
 
 ## Code-quality gate
