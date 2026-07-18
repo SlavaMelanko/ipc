@@ -13,13 +13,11 @@ bool InitProcessSharedMutex(pthread_mutex_t& mutex) {
   ipc::common::ScopeExit destroyAttr(
       [&mutexAttr]() noexcept { pthread_mutexattr_destroy(&mutexAttr); });
 
-  return ipc::common::Ok(pthread_mutexattr_setpshared(
-             &mutexAttr, PTHREAD_PROCESS_SHARED)) &&
+  return ipc::common::Ok(pthread_mutexattr_setpshared(&mutexAttr, PTHREAD_PROCESS_SHARED)) &&
          ipc::common::Ok(pthread_mutex_init(&mutex, &mutexAttr));
 }
 
-bool InitProcessSharedConds(pthread_cond_t& slotFreeCond,
-                            pthread_cond_t& messageAvailableCond) {
+bool InitProcessSharedConds(pthread_cond_t& slotFreeCond, pthread_cond_t& messageAvailableCond) {
   pthread_condattr_t condAttr;
   if (ipc::common::Failed(pthread_condattr_init(&condAttr))) {
     return false;
@@ -27,8 +25,7 @@ bool InitProcessSharedConds(pthread_cond_t& slotFreeCond,
   ipc::common::ScopeExit destroyAttr(
       [&condAttr]() noexcept { pthread_condattr_destroy(&condAttr); });
 
-  if (ipc::common::Failed(
-          pthread_condattr_setpshared(&condAttr, PTHREAD_PROCESS_SHARED))) {
+  if (ipc::common::Failed(pthread_condattr_setpshared(&condAttr, PTHREAD_PROCESS_SHARED))) {
     return false;
   }
 
@@ -45,8 +42,7 @@ bool ControlBlock::Init(ControlBlock& control) {
     return false;
   }
 
-  if (!InitProcessSharedConds(control.slotFreeCond,
-                              control.messageAvailableCond)) {
+  if (!InitProcessSharedConds(control.slotFreeCond, control.messageAvailableCond)) {
     return false;
   }
 

@@ -34,8 +34,7 @@ constexpr std::size_t SlotAreaOffset() {
 
 // How many whole slots fit after the control block. Returns 0 if the ring
 // capacity can't even hold the control block, or not a single slot.
-constexpr std::size_t SlotCount(std::size_t ringCapacityBytes,
-                                std::size_t payloadSize) {
+constexpr std::size_t SlotCount(std::size_t ringCapacityBytes, std::size_t payloadSize) {
   std::size_t stride = SlotStride(payloadSize);
   if (stride == 0 || ringCapacityBytes <= SlotAreaOffset()) {
     return 0;

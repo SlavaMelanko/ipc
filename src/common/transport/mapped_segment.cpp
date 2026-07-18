@@ -12,8 +12,7 @@
 
 namespace ipc::common {
 
-std::optional<MappedSegment> MappedSegment::Open(const std::string& name,
-                                                 std::size_t size,
+std::optional<MappedSegment> MappedSegment::Open(const std::string& name, std::size_t size,
                                                  bool createNew) {
   int flags = O_RDWR | (createNew ? (O_CREAT | O_EXCL) : 0);
   int fd = shm_open(name.c_str(), flags, 0600);
@@ -36,8 +35,7 @@ std::optional<MappedSegment> MappedSegment::Open(const std::string& name,
     }
   }
 
-  void* mapping =
-      mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+  void* mapping = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
   if (mapping == MAP_FAILED) {
     if (createNew) {
       shm_unlink(name.c_str());
@@ -48,22 +46,16 @@ std::optional<MappedSegment> MappedSegment::Open(const std::string& name,
   return MappedSegment(name, mapping, size, createNew);
 }
 
-std::optional<MappedSegment> MappedSegment::Create(const std::string& name,
-                                                   std::size_t size) {
+std::optional<MappedSegment> MappedSegment::Create(const std::string& name, std::size_t size) {
   return Open(name, size, /*createNew=*/true);
 }
 
-std::optional<MappedSegment> MappedSegment::Attach(const std::string& name,
-                                                   std::size_t size) {
+std::optional<MappedSegment> MappedSegment::Attach(const std::string& name, std::size_t size) {
   return Open(name, size, /*createNew=*/false);
 }
 
-MappedSegment::MappedSegment(std::string name, void* mapping, std::size_t size,
-                             bool isOwner)
-    : name_(std::move(name)),
-      mapping_(mapping),
-      size_(size),
-      isOwner_(isOwner) {}
+MappedSegment::MappedSegment(std::string name, void* mapping, std::size_t size, bool isOwner)
+    : name_(std::move(name)), mapping_(mapping), size_(size), isOwner_(isOwner) {}
 
 MappedSegment::MappedSegment(MappedSegment&& other) noexcept
     : name_(std::move(other.name_)),

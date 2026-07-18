@@ -21,20 +21,19 @@ class SharedMemoryTransport : public ITransport {
   // Creates a new segment and initializes the control block: mutex,
   // condvars, and both cursors zeroed. Fails (returns nullptr) if a segment
   // with this name already exists.
-  static std::unique_ptr<ITransport> CreateProducer(
-      std::size_t payloadSize, std::size_t ringCapacityBytes);
+  static std::unique_ptr<ITransport> CreateProducer(std::size_t payloadSize,
+                                                    std::size_t ringCapacityBytes);
 
   // Attaches to a segment a producer has already created. Fails (returns
   // nullptr) if the segment doesn't exist.
-  static std::unique_ptr<ITransport> AttachConsumer(
-      std::size_t payloadSize, std::size_t ringCapacityBytes);
+  static std::unique_ptr<ITransport> AttachConsumer(std::size_t payloadSize,
+                                                    std::size_t ringCapacityBytes);
 
   bool Send(const Message& message) override;
   bool Receive(Message& message) override;
 
  private:
-  SharedMemoryTransport(MappedSegment segment, std::size_t payloadSize,
-                        std::size_t slotCount);
+  SharedMemoryTransport(MappedSegment segment, std::size_t payloadSize, std::size_t slotCount);
 
   ControlBlock& Control();
   std::byte* SlotAt(std::uint64_t index);

@@ -19,23 +19,20 @@ class MappedSegment {
 
   // Creates a new segment (O_CREAT | O_EXCL) of the given size. Fails if a
   // segment with this name already exists.
-  static std::optional<MappedSegment> Create(const std::string& name,
-                                             std::size_t size);
+  static std::optional<MappedSegment> Create(const std::string& name, std::size_t size);
 
   // Attaches to a segment another process has already created. Fails if the
   // segment doesn't exist.
-  static std::optional<MappedSegment> Attach(const std::string& name,
-                                             std::size_t size);
+  static std::optional<MappedSegment> Attach(const std::string& name, std::size_t size);
 
   void* data() { return mapping_; }
   [[nodiscard]] std::size_t size() const { return size_; }
 
  private:
-  MappedSegment(std::string name, void* mapping, std::size_t size,
-                bool isOwner);
+  MappedSegment(std::string name, void* mapping, std::size_t size, bool isOwner);
 
-  static std::optional<MappedSegment> Open(const std::string& name,
-                                           std::size_t size, bool createNew);
+  static std::optional<MappedSegment> Open(const std::string& name, std::size_t size,
+                                           bool createNew);
 
   std::string name_;
   void* mapping_;

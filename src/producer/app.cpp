@@ -38,8 +38,8 @@ App::App(int argc, char** argv) : cmdArgs_(ParseOrThrow(argc, argv)) {}
 bool App::Run() const {
   std::uint64_t count = cmdArgs_.count;
 
-  auto transport = ipc::common::SharedMemoryTransport::CreateProducer(
-      Config::payloadSize, Config::ringCapacityBytes);
+  auto transport = ipc::common::SharedMemoryTransport::CreateProducer(Config::payloadSize,
+                                                                      Config::ringCapacityBytes);
   if (!transport) {
     std::println(stderr, "producer: failed to create shared-memory segment");
 
@@ -48,19 +48,16 @@ bool App::Run() const {
 
   std::vector<std::byte> payloadBuffer(Config::payloadSize);
 
-  for (std::uint64_t sequenceNumber = 0; sequenceNumber < count;
-       ++sequenceNumber) {
+  for (std::uint64_t sequenceNumber = 0; sequenceNumber < count; ++sequenceNumber) {
     FillPayload(payloadBuffer, sequenceNumber);
 
     ipc::common::Message message{
         .header = {.sequenceNumber = sequenceNumber,
-                   .payloadSize =
-                       static_cast<std::uint32_t>(Config::payloadSize)},
+                   .payloadSize = static_cast<std::uint32_t>(Config::payloadSize)},
         .payload = payloadBuffer};
 
     if (!transport->Send(message)) {
-      std::println(stderr, "producer: send failed at sequenceNumber={}",
-                   sequenceNumber);
+      std::println(stderr, "producer: send failed at sequenceNumber={}", sequenceNumber);
 
       return false;
     }

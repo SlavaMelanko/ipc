@@ -13,8 +13,7 @@ struct CommandLineArgs {
 
 // Parses argv. Returns an error message on invalid input (e.g. non-numeric
 // or non-positive --count).
-std::expected<CommandLineArgs, std::string> ParseCommandLine(int argc,
-                                                             char** argv);
+std::expected<CommandLineArgs, std::string> ParseCommandLine(int argc, char** argv);
 
 }  // namespace ipc::producer
 

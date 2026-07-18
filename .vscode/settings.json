@@ -9,10 +9,12 @@
   ],
   "[cpp]": {
     "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd",
-    "editor.formatOnSave": true
+    "editor.formatOnSave": true,
+    "editor.rulers": [100]
   },
   "[c]": {
     "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd",
-    "editor.formatOnSave": true
+    "editor.formatOnSave": true,
+    "editor.rulers": [100]
   }
 }
