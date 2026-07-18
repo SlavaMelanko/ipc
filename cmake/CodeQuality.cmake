@@ -6,7 +6,9 @@ find_program(CLANG_TIDY_BIN NAMES clang-tidy)
 
 file(GLOB_RECURSE IPC_SOURCES CONFIGURE_DEPENDS
   ${CMAKE_SOURCE_DIR}/src/*.cpp
-  ${CMAKE_SOURCE_DIR}/src/*.h)
+  ${CMAKE_SOURCE_DIR}/src/*.h
+  ${CMAKE_SOURCE_DIR}/tests/*.cpp
+  ${CMAKE_SOURCE_DIR}/tests/*.h)
 
 if(CLANG_FORMAT_BIN)
   add_custom_target(format

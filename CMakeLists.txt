@@ -50,5 +50,12 @@ add_executable(consumer-cli src/consumer/main.cpp)
 target_link_libraries(consumer-cli PRIVATE consumer_lib)
 ipc_enable_warnings(consumer-cli)
 
+enable_testing()
+
+add_executable(end_to_end_test tests/end_to_end_test.cpp)
+target_link_libraries(end_to_end_test PRIVATE common_lib)
+ipc_enable_warnings(end_to_end_test)
+add_test(NAME end_to_end COMMAND end_to_end_test)
+
 include(cmake/CodeQuality.cmake)
 include(cmake/GitHooks.cmake)
