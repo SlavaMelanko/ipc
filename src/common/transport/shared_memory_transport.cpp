@@ -8,39 +8,41 @@
 
 namespace ipc::common {
 
-std::optional<SharedMemoryTransport> SharedMemoryTransport::CreateProducer(
+std::unique_ptr<ITransport> SharedMemoryTransport::CreateProducer(
     std::size_t payloadSize, std::size_t ringCapacityBytes) {
   std::size_t slotCount = SlotCount(ringCapacityBytes, payloadSize);
   if (slotCount == 0) {
-    return std::nullopt;
+    return nullptr;
   }
 
   auto segment = MappedSegment::Create(kSegmentName, ringCapacityBytes);
   if (!segment) {
-    return std::nullopt;
+    return nullptr;
   }
 
   auto* control = static_cast<ControlBlock*>(segment->data());
   if (!ControlBlock::Init(*control)) {
-    return std::nullopt;
+    return nullptr;
   }
 
-  return SharedMemoryTransport(std::move(*segment), payloadSize, slotCount);
+  return std::unique_ptr<SharedMemoryTransport>(
+      new SharedMemoryTransport(std::move(*segment), payloadSize, slotCount));
 }
 
-std::optional<SharedMemoryTransport> SharedMemoryTransport::AttachConsumer(
+std::unique_ptr<ITransport> SharedMemoryTransport::AttachConsumer(
     std::size_t payloadSize, std::size_t ringCapacityBytes) {
   std::size_t slotCount = SlotCount(ringCapacityBytes, payloadSize);
   if (slotCount == 0) {
-    return std::nullopt;
+    return nullptr;
   }
 
   auto segment = MappedSegment::Attach(kSegmentName, ringCapacityBytes);
   if (!segment) {
-    return std::nullopt;
+    return nullptr;
   }
 
-  return SharedMemoryTransport(std::move(*segment), payloadSize, slotCount);
+  return std::unique_ptr<SharedMemoryTransport>(
+      new SharedMemoryTransport(std::move(*segment), payloadSize, slotCount));
 }
 
 SharedMemoryTransport::SharedMemoryTransport(MappedSegment segment,
