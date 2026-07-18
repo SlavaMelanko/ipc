@@ -20,6 +20,7 @@ add_library(common_lib
   src/common/transport/control_block.cpp
   src/common/transport/mapped_segment.cpp
   src/common/transport/shared_memory_transport.cpp
+  src/common/util/cli.cpp
 )
 target_include_directories(common_lib PUBLIC src)
 target_link_libraries(common_lib PUBLIC Threads::Threads)
@@ -39,6 +40,18 @@ ipc_enable_warnings(producer_lib)
 add_executable(producer-cli src/producer/main.cpp)
 target_link_libraries(producer-cli PRIVATE producer_lib)
 ipc_enable_warnings(producer-cli)
+
+add_library(consumer_lib
+  src/consumer/app.cpp
+  src/consumer/command_line_parser.cpp
+)
+target_include_directories(consumer_lib PUBLIC src)
+target_link_libraries(consumer_lib PUBLIC common_lib)
+ipc_enable_warnings(consumer_lib)
+
+add_executable(consumer-cli src/consumer/main.cpp)
+target_link_libraries(consumer-cli PRIVATE consumer_lib)
+ipc_enable_warnings(consumer-cli)
 
 include(cmake/CodeQuality.cmake)
 include(cmake/GitHooks.cmake)
