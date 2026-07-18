@@ -41,6 +41,7 @@ class SharedMemoryTransport : public ITransport {
   MappedSegment segment_;
   std::size_t payloadSize_;
   std::size_t slotCount_;
+  bool loggedBackpressure_ = false;
 };
 
 }  // namespace ipc::common

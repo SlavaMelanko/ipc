@@ -58,10 +58,13 @@ bool SharedMemoryTransport::Send(const Message& message) {
   ScopeExit unlock([&control]() noexcept { pthread_mutex_unlock(&control.mutex); });
 
   bool isFull = control.writeCursor - control.readCursor == slotCount_;
-  if (isFull) {
+  if (isFull && !loggedBackpressure_) {
     // No StatsReporter until v2 -- without this, a full ring with no
-    // consumer draining it looks identical to a genuine hang.
+    // consumer draining it looks identical to a genuine hang. Logged once
+    // per process, not once per full/empty episode -- otherwise a
+    // consumer/producer pair that's merely neck-and-neck floods stderr.
     std::println(stderr, "producer: ring full, blocking until consumer drains it");
+    loggedBackpressure_ = true;
   }
   while (isFull) {
     if (Failed(pthread_cond_wait(&control.slotFreeCond, &control.mutex))) {
@@ -88,10 +91,13 @@ bool SharedMemoryTransport::Receive(Message& message) {
   ScopeExit unlock([&control]() noexcept { pthread_mutex_unlock(&control.mutex); });
 
   bool isEmpty = control.writeCursor == control.readCursor;
-  if (isEmpty) {
+  if (isEmpty && !loggedBackpressure_) {
     // No StatsReporter until v2 -- without this, an empty ring with no
-    // producer sending looks identical to a genuine hang.
+    // producer sending looks identical to a genuine hang. Logged once per
+    // process, not once per full/empty episode -- otherwise a
+    // consumer/producer pair that's merely neck-and-neck floods stderr.
     std::println(stderr, "consumer: ring empty, waiting for producer");
+    loggedBackpressure_ = true;
   }
   while (isEmpty) {
     if (Failed(pthread_cond_wait(&control.messageAvailableCond, &control.mutex))) {
