@@ -93,10 +93,13 @@ std::optional<MappedSegment> MappedSegment::Attach(const std::string& name, std:
   }
   ScopeExit closeFd([fd]() noexcept { close(fd); });
 
-  // A mismatched size here means a different slotCount than the producer
-  // computed, or mmap accessing pages past the real segment (SIGBUS).
+  // ftruncate() rounds the segment up to a whole page, so the real segment
+  // is often larger than size, never smaller. A smaller actual segment means
+  // a different slotCount than the producer computed, or mmap accessing
+  // pages past the real segment (SIGBUS) -- reject that, but not the benign
+  // page-rounding case.
   struct stat st;
-  if (Failed(fstat(fd, &st)) || std::cmp_not_equal(st.st_size, size)) {
+  if (Failed(fstat(fd, &st)) || std::cmp_less(st.st_size, size)) {
     return std::nullopt;
   }
 
