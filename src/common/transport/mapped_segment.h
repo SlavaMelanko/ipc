@@ -31,9 +31,6 @@ class MappedSegment {
  private:
   MappedSegment(std::string name, void* mapping, std::size_t size, bool isOwner);
 
-  static std::optional<MappedSegment> Open(const std::string& name, std::size_t size,
-                                           bool createNew);
-
   std::string name_;
   void* mapping_;
   std::size_t size_;
