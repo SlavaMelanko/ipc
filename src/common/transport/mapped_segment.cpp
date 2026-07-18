@@ -7,6 +7,8 @@
 
 #include <utility>
 
+#include "common/util/scope_exit.h"
+
 namespace ipc::common {
 
 std::optional<MappedSegment> MappedSegment::Open(const std::string& name,
@@ -17,10 +19,10 @@ std::optional<MappedSegment> MappedSegment::Open(const std::string& name,
   if (fd == -1) {
     return std::nullopt;
   }
+  ScopeExit closeFd([fd]() noexcept { close(fd); });
 
   if (createNew) {
     if (ftruncate(fd, static_cast<off_t>(size)) != 0) {
-      close(fd);
       shm_unlink(name.c_str());
       return std::nullopt;
     }
@@ -29,14 +31,12 @@ std::optional<MappedSegment> MappedSegment::Open(const std::string& name,
     // computed, or mmap accessing pages past the real segment (SIGBUS).
     struct stat st;
     if (fstat(fd, &st) != 0 || std::cmp_not_equal(st.st_size, size)) {
-      close(fd);
       return std::nullopt;
     }
   }
 
   void* mapping =
       mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-  close(fd);
   if (mapping == MAP_FAILED) {
     if (createNew) {
       shm_unlink(name.c_str());

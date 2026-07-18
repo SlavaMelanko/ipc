@@ -3,6 +3,7 @@
 #include <cstring>
 
 #include "common/transport/ring_layout.h"
+#include "common/util/scope_exit.h"
 
 namespace ipc::common {
 
@@ -67,10 +68,16 @@ bool SharedMemoryTransport::Send(const Message& message) {
   }
 
   ControlBlock& control = Control();
-  pthread_mutex_lock(&control.mutex);
+  if (pthread_mutex_lock(&control.mutex) != 0) {
+    return false;
+  }
+  ScopeExit unlock(
+      [&control]() noexcept { pthread_mutex_unlock(&control.mutex); });
 
   while (control.writeCursor - control.readCursor == slotCount_) {  // is full
-    pthread_cond_wait(&control.slotFreeCond, &control.mutex);
+    if (pthread_cond_wait(&control.slotFreeCond, &control.mutex) != 0) {
+      return false;
+    }
   }
 
   std::byte* slot = SlotAt(control.writeCursor);
@@ -79,31 +86,33 @@ bool SharedMemoryTransport::Send(const Message& message) {
   ++control.writeCursor;
 
   pthread_cond_signal(&control.messageAvailableCond);
-  pthread_mutex_unlock(&control.mutex);
 
   return true;
 }
 
 bool SharedMemoryTransport::Receive(Message& message) {
   ControlBlock& control = Control();
-  pthread_mutex_lock(&control.mutex);
+  if (pthread_mutex_lock(&control.mutex) != 0) {
+    return false;
+  }
+  ScopeExit unlock(
+      [&control]() noexcept { pthread_mutex_unlock(&control.mutex); });
 
   while (control.writeCursor == control.readCursor) {  // is empty
-    pthread_cond_wait(&control.messageAvailableCond, &control.mutex);
+    if (pthread_cond_wait(&control.messageAvailableCond, &control.mutex) != 0) {
+      return false;
+    }
   }
 
   std::byte* slot = SlotAt(control.readCursor);
   std::memcpy(&message.header, slot, sizeof(Header));
   if (message.header.payloadSize != payloadSize_) {
-    pthread_mutex_unlock(&control.mutex);
-
     return false;
   }
   std::memcpy(message.payload.data(), slot + sizeof(Header), payloadSize_);
   ++control.readCursor;
 
   pthread_cond_signal(&control.slotFreeCond);
-  pthread_mutex_unlock(&control.mutex);
 
   return true;
 }

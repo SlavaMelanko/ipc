@@ -1,5 +1,7 @@
 #include "common/transport/control_block.h"
 
+#include "common/util/scope_exit.h"
+
 namespace {
 
 bool InitProcessSharedMutex(pthread_mutex_t& mutex) {
@@ -7,14 +9,12 @@ bool InitProcessSharedMutex(pthread_mutex_t& mutex) {
   if (pthread_mutexattr_init(&mutexAttr) != 0) {
     return false;
   }
+  ipc::common::ScopeExit destroyAttr(
+      [&mutexAttr]() noexcept { pthread_mutexattr_destroy(&mutexAttr); });
 
-  bool ok =
-      pthread_mutexattr_setpshared(&mutexAttr, PTHREAD_PROCESS_SHARED) == 0 &&
-      pthread_mutex_init(&mutex, &mutexAttr) == 0;
-
-  pthread_mutexattr_destroy(&mutexAttr);
-
-  return ok;
+  return pthread_mutexattr_setpshared(&mutexAttr, PTHREAD_PROCESS_SHARED) ==
+             0 &&
+         pthread_mutex_init(&mutex, &mutexAttr) == 0;
 }
 
 bool InitProcessSharedConds(pthread_cond_t& slotFreeCond,
@@ -23,18 +23,15 @@ bool InitProcessSharedConds(pthread_cond_t& slotFreeCond,
   if (pthread_condattr_init(&condAttr) != 0) {
     return false;
   }
+  ipc::common::ScopeExit destroyAttr(
+      [&condAttr]() noexcept { pthread_condattr_destroy(&condAttr); });
 
   if (pthread_condattr_setpshared(&condAttr, PTHREAD_PROCESS_SHARED) != 0) {
-    pthread_condattr_destroy(&condAttr);
     return false;
   }
 
-  bool ok = pthread_cond_init(&slotFreeCond, &condAttr) == 0 &&
-            pthread_cond_init(&messageAvailableCond, &condAttr) == 0;
-
-  pthread_condattr_destroy(&condAttr);
-
-  return ok;
+  return pthread_cond_init(&slotFreeCond, &condAttr) == 0 &&
+         pthread_cond_init(&messageAvailableCond, &condAttr) == 0;
 }
 
 }  // namespace
