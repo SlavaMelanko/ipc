@@ -20,12 +20,14 @@ constexpr std::size_t SlotStride(std::size_t payloadSize) {
   if (payloadSize > std::numeric_limits<std::size_t>::max() - sizeof(Header)) {
     return 0;
   }
+
   return AlignUp(sizeof(Header) + payloadSize, alignof(std::max_align_t));
 }
 
 // Byte offset from the mapping's start to slot 0. sizeof(ControlBlock) only
-// satisfies alignof(ControlBlock), not the stricter alignment slots need, so
-// this rounds up to the same alignment SlotStride uses.
+// guarantees alignof(ControlBlock); reinterpreting raw bytes as a Header at an
+// address weaker than alignof(max_align_t) is undefined behavior, so this
+// rounds up to the same alignment SlotStride uses.
 constexpr std::size_t SlotAreaOffset() {
   return AlignUp(sizeof(ControlBlock), alignof(std::max_align_t));
 }
@@ -38,6 +40,7 @@ constexpr std::size_t SlotCount(std::size_t ringCapacityBytes,
   if (stride == 0 || ringCapacityBytes <= SlotAreaOffset()) {
     return 0;
   }
+
   return (ringCapacityBytes - SlotAreaOffset()) / stride;
 }
 
