@@ -7,6 +7,7 @@
 
 #include <utility>
 
+#include "common/util/posix.h"
 #include "common/util/scope_exit.h"
 
 namespace ipc::common {
@@ -22,7 +23,7 @@ std::optional<MappedSegment> MappedSegment::Open(const std::string& name,
   ScopeExit closeFd([fd]() noexcept { close(fd); });
 
   if (createNew) {
-    if (ftruncate(fd, static_cast<off_t>(size)) != 0) {
+    if (Failed(ftruncate(fd, static_cast<off_t>(size)))) {
       shm_unlink(name.c_str());
       return std::nullopt;
     }
@@ -30,7 +31,7 @@ std::optional<MappedSegment> MappedSegment::Open(const std::string& name,
     // A mismatched size here means a different slotCount than the producer
     // computed, or mmap accessing pages past the real segment (SIGBUS).
     struct stat st;
-    if (fstat(fd, &st) != 0 || std::cmp_not_equal(st.st_size, size)) {
+    if (Failed(fstat(fd, &st)) || std::cmp_not_equal(st.st_size, size)) {
       return std::nullopt;
     }
   }

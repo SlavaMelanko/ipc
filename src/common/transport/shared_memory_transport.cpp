@@ -4,6 +4,7 @@
 #include <print>
 
 #include "common/transport/ring_layout.h"
+#include "common/util/posix.h"
 #include "common/util/scope_exit.h"
 
 namespace ipc::common {
@@ -69,7 +70,7 @@ bool SharedMemoryTransport::Send(const Message& message) {
   }
 
   ControlBlock& control = Control();
-  if (pthread_mutex_lock(&control.mutex) != 0) {
+  if (Failed(pthread_mutex_lock(&control.mutex))) {
     return false;
   }
   ScopeExit unlock(
@@ -83,7 +84,7 @@ bool SharedMemoryTransport::Send(const Message& message) {
                  "producer: ring full, blocking until consumer drains it");
   }
   while (isFull) {
-    if (pthread_cond_wait(&control.slotFreeCond, &control.mutex) != 0) {
+    if (Failed(pthread_cond_wait(&control.slotFreeCond, &control.mutex))) {
       return false;
     }
     isFull = control.writeCursor - control.readCursor == slotCount_;
@@ -101,7 +102,7 @@ bool SharedMemoryTransport::Send(const Message& message) {
 
 bool SharedMemoryTransport::Receive(Message& message) {
   ControlBlock& control = Control();
-  if (pthread_mutex_lock(&control.mutex) != 0) {
+  if (Failed(pthread_mutex_lock(&control.mutex))) {
     return false;
   }
   ScopeExit unlock(
@@ -114,7 +115,8 @@ bool SharedMemoryTransport::Receive(Message& message) {
     std::println(stderr, "consumer: ring empty, waiting for producer");
   }
   while (isEmpty) {
-    if (pthread_cond_wait(&control.messageAvailableCond, &control.mutex) != 0) {
+    if (Failed(
+            pthread_cond_wait(&control.messageAvailableCond, &control.mutex))) {
       return false;
     }
     isEmpty = control.writeCursor == control.readCursor;
