@@ -29,10 +29,16 @@ endif()
 ipc_enable_warnings(common_lib)
 
 add_library(producer_lib
+  src/producer/app.cpp
   src/producer/command_line_parser.cpp
 )
 target_include_directories(producer_lib PUBLIC src)
+target_link_libraries(producer_lib PUBLIC common_lib)
 ipc_enable_warnings(producer_lib)
+
+add_executable(producer-cli src/producer/main.cpp)
+target_link_libraries(producer-cli PRIVATE producer_lib)
+ipc_enable_warnings(producer-cli)
 
 include(cmake/CodeQuality.cmake)
 include(cmake/GitHooks.cmake)

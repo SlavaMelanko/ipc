@@ -13,18 +13,21 @@ namespace ipc::common {
 
 class SharedMemoryTransport : public ITransport {
  public:
+  // Fixed at every iteration (see AGENTS.md's "Naming"), not caller-supplied:
+  // the producer and consumer must agree on it without either side passing
+  // it around.
+  static constexpr const char* kSegmentName = "/ipc_ring_v1";
+
   // Creates a new segment and initializes the control block: mutex,
   // condvars, and both cursors zeroed. Fails if a segment with this name
   // already exists.
   static std::optional<SharedMemoryTransport> CreateProducer(
-      const std::string& name, std::size_t payloadSize,
-      std::size_t ringCapacityBytes);
+      std::size_t payloadSize, std::size_t ringCapacityBytes);
 
   // Attaches to a segment a producer has already created. Fails if the
   // segment doesn't exist.
   static std::optional<SharedMemoryTransport> AttachConsumer(
-      const std::string& name, std::size_t payloadSize,
-      std::size_t ringCapacityBytes);
+      std::size_t payloadSize, std::size_t ringCapacityBytes);
 
   bool Send(const Message& message) override;
   bool Receive(Message& message) override;

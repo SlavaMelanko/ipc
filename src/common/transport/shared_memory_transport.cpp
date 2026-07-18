@@ -1,6 +1,7 @@
 #include "common/transport/shared_memory_transport.h"
 
 #include <cstring>
+#include <print>
 
 #include "common/transport/ring_layout.h"
 #include "common/util/scope_exit.h"
@@ -8,14 +9,13 @@
 namespace ipc::common {
 
 std::optional<SharedMemoryTransport> SharedMemoryTransport::CreateProducer(
-    const std::string& name, std::size_t payloadSize,
-    std::size_t ringCapacityBytes) {
+    std::size_t payloadSize, std::size_t ringCapacityBytes) {
   std::size_t slotCount = SlotCount(ringCapacityBytes, payloadSize);
   if (slotCount == 0) {
     return std::nullopt;
   }
 
-  auto segment = MappedSegment::Create(name, ringCapacityBytes);
+  auto segment = MappedSegment::Create(kSegmentName, ringCapacityBytes);
   if (!segment) {
     return std::nullopt;
   }
@@ -29,14 +29,13 @@ std::optional<SharedMemoryTransport> SharedMemoryTransport::CreateProducer(
 }
 
 std::optional<SharedMemoryTransport> SharedMemoryTransport::AttachConsumer(
-    const std::string& name, std::size_t payloadSize,
-    std::size_t ringCapacityBytes) {
+    std::size_t payloadSize, std::size_t ringCapacityBytes) {
   std::size_t slotCount = SlotCount(ringCapacityBytes, payloadSize);
   if (slotCount == 0) {
     return std::nullopt;
   }
 
-  auto segment = MappedSegment::Attach(name, ringCapacityBytes);
+  auto segment = MappedSegment::Attach(kSegmentName, ringCapacityBytes);
   if (!segment) {
     return std::nullopt;
   }
@@ -74,10 +73,18 @@ bool SharedMemoryTransport::Send(const Message& message) {
   ScopeExit unlock(
       [&control]() noexcept { pthread_mutex_unlock(&control.mutex); });
 
-  while (control.writeCursor - control.readCursor == slotCount_) {  // is full
+  bool isFull = control.writeCursor - control.readCursor == slotCount_;
+  if (isFull) {
+    // No StatsReporter until v2 -- without this, a full ring with no
+    // consumer draining it looks identical to a genuine hang.
+    std::println(stderr,
+                 "producer: ring full, blocking until consumer drains it");
+  }
+  while (isFull) {
     if (pthread_cond_wait(&control.slotFreeCond, &control.mutex) != 0) {
       return false;
     }
+    isFull = control.writeCursor - control.readCursor == slotCount_;
   }
 
   std::byte* slot = SlotAt(control.writeCursor);
@@ -98,10 +105,17 @@ bool SharedMemoryTransport::Receive(Message& message) {
   ScopeExit unlock(
       [&control]() noexcept { pthread_mutex_unlock(&control.mutex); });
 
-  while (control.writeCursor == control.readCursor) {  // is empty
+  bool isEmpty = control.writeCursor == control.readCursor;
+  if (isEmpty) {
+    // No StatsReporter until v2 -- without this, an empty ring with no
+    // producer sending looks identical to a genuine hang.
+    std::println(stderr, "consumer: ring empty, waiting for producer");
+  }
+  while (isEmpty) {
     if (pthread_cond_wait(&control.messageAvailableCond, &control.mutex) != 0) {
       return false;
     }
+    isEmpty = control.writeCursor == control.readCursor;
   }
 
   std::byte* slot = SlotAt(control.readCursor);
