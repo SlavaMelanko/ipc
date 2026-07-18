@@ -71,3 +71,6 @@ Testing/
 # IDE and AI assistant settings
 .idea/
 .claude/
+
+# Next.js demo app
+demo/
