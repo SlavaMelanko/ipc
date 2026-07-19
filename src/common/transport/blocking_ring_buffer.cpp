@@ -2,6 +2,7 @@
 
 #include <utility>
 
+#include "common/transport/control_block.h"
 #include "common/transport/ring_layout.h"
 #include "common/util/posix.h"
 
@@ -29,7 +30,7 @@ std::optional<BlockingRingBuffer> BlockingRingBuffer::Create(const std::string& 
   }
 
   auto* control = static_cast<ControlBlock*>(segment->data());
-  if (!ControlBlock::Init(*control)) {
+  if (!InitControlBlock(*control)) {
     return std::nullopt;
   }
 

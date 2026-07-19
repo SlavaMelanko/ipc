@@ -21,7 +21,7 @@ bool InitProcessSharedMutex(pthread_mutex_t& mutex) {
 
 namespace ipc::common {
 
-bool ControlBlock::Init(ControlBlock& control) {
+bool InitControlBlock(ControlBlock& control) {
   if (!InitProcessSharedMutex(control.cursorMutex)) {
     return false;
   }

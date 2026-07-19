@@ -6,11 +6,12 @@
 #include <optional>
 #include <string>
 
-#include "common/transport/control_block.h"
 #include "common/transport/mapped_segment.h"
 #include "common/transport/named_semaphore.h"
 
 namespace ipc::common {
+
+struct ControlBlock;
 
 // Bounded SPSC ring of fixed-size slots over shared memory, blocking via
 // named semaphores. Deals in raw slot bytes; framing is the caller's job.
@@ -29,8 +30,6 @@ class BlockingRingBuffer {
   BlockingRingBuffer& operator=(BlockingRingBuffer&&) noexcept = default;
   ~BlockingRingBuffer() = default;
 
-  // Blocks until free, returns a sizeof(Header) + payloadSize slot, or
-  // nullptr on failure.
   std::byte* AcquireWriteSlot();
   void CommitWrite();
 

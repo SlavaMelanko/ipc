@@ -13,12 +13,12 @@ struct ControlBlock {
   pthread_mutex_t cursorMutex;
   std::uint64_t writeCursor;
   std::uint64_t readCursor;
-
-  static bool Init(ControlBlock& control);
 };
 
 // Placed raw in shared memory: must stay trivially copyable across platforms.
 static_assert(std::is_trivially_copyable_v<ControlBlock>);
+
+bool InitControlBlock(ControlBlock& control);
 
 }  // namespace ipc::common
 
