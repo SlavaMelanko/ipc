@@ -20,7 +20,10 @@ class NamedSemaphore {
   NamedSemaphore& operator=(NamedSemaphore&& other) noexcept;
   ~NamedSemaphore();
 
-  int Wait() { return sem_wait(sem_); }
+  // Retries on EINTR -- sem_wait() isn't restarted by the kernel the way an
+  // SA_RESTART-flagged syscall would be, so a caller-visible EINTR here would
+  // otherwise misreport an ordinary signal interruption as semaphore failure.
+  int Wait();
   int Post() { return sem_post(sem_); }
 
  private:

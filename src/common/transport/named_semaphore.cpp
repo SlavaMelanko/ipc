@@ -2,6 +2,7 @@
 
 #include <fcntl.h>
 
+#include <cerrno>
 #include <utility>
 
 #include "common/util/posix.h"
@@ -62,6 +63,15 @@ NamedSemaphore::~NamedSemaphore() {
   if (isOwner_) {
     sem_unlink(name_.c_str());
   }
+}
+
+int NamedSemaphore::Wait() {
+  int result;
+  do {
+    result = sem_wait(sem_);
+  } while (result != 0 && errno == EINTR);
+
+  return result;
 }
 
 NamedSemaphore::NamedSemaphore(std::string name, sem_t* sem, bool isOwner)
