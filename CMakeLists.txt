@@ -14,8 +14,10 @@ include(cmake/CompilerWarnings.cmake)
 find_package(Threads REQUIRED)
 
 add_library(common_lib
+  src/common/transport/blocking_ring_buffer.cpp
   src/common/transport/control_block.cpp
   src/common/transport/mapped_segment.cpp
+  src/common/transport/named_semaphore.cpp
   src/common/transport/shared_memory_transport.cpp
   src/common/util/cli.cpp
 )

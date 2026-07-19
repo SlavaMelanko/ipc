@@ -3,45 +3,33 @@
 
 #include <cstddef>
 #include <memory>
-#include <string>
 
-#include "common/transport/control_block.h"
-#include "common/transport/mapped_segment.h"
+#include "common/transport/blocking_ring_buffer.h"
 #include "common/transport/transport.h"
 
 namespace ipc::common {
 
 class SharedMemoryTransport : public ITransport {
  public:
-  // Fixed at every iteration (see AGENTS.md's "Naming"), not caller-supplied:
-  // the producer and consumer must agree on it without either side passing
-  // it around.
   static constexpr const char* kSegmentName = "/ipc_ring_v1";
 
-  // Creates a new segment and initializes the control block: mutex,
-  // condvars, and both cursors zeroed. Fails (returns nullptr) if a segment
-  // with this name already exists.
   static std::unique_ptr<ITransport> CreateProducer(std::size_t payloadSize,
                                                     std::size_t ringCapacityBytes);
-
-  // Attaches to a segment a producer has already created. Fails (returns
-  // nullptr) if the segment doesn't exist.
   static std::unique_ptr<ITransport> AttachConsumer(std::size_t payloadSize,
                                                     std::size_t ringCapacityBytes);
+
+  SharedMemoryTransport(const SharedMemoryTransport&) = delete;
+  SharedMemoryTransport& operator=(const SharedMemoryTransport&) = delete;
+  ~SharedMemoryTransport() override = default;
 
   bool Send(const Message& message) override;
   bool Receive(Message& message) override;
 
  private:
-  SharedMemoryTransport(MappedSegment segment, std::size_t payloadSize, std::size_t slotCount);
+  SharedMemoryTransport(BlockingRingBuffer ring, std::size_t payloadSize);
 
-  ControlBlock& Control();
-  std::byte* SlotAt(std::uint64_t index);
-
-  MappedSegment segment_;
+  BlockingRingBuffer ring_;
   std::size_t payloadSize_;
-  std::size_t slotCount_;
-  bool loggedBackpressure_ = false;
 };
 
 }  // namespace ipc::common
