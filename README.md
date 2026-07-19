@@ -24,9 +24,9 @@ without changing `ITransport`'s public shape:
 
 - [x] Define the project architecture
 - [x] Design `ITransport`
-- [x] **v1 — vertical slice.** Two CLIs, one mutex-protected SPSC ring,
-      fixed-size sequenced messages, fail-fast `bool` errors, one
-      end-to-end test.
+- [x] **v1 — vertical slice.** Two CLIs, one semaphore-backed SPSC ring
+      with mutex-protected cursors, fixed-size sequenced messages,
+      fail-fast `bool` errors, one end-to-end test.
 - [ ] **v2 — robustness and observability.** Interactive control, signal
       handling, checksums, `sessionId`, crash recovery, stats reporting,
       richer result types.
