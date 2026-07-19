@@ -40,9 +40,7 @@ bool SharedMemoryTransport::Send(const Message& message) {
   std::memcpy(slot, &message.header, sizeof(Header));
   std::memcpy(slot + sizeof(Header), message.payload.data(), payloadSize_);
 
-  ring_.CommitWrite();
-
-  return true;
+  return ring_.CommitWrite();
 }
 
 bool SharedMemoryTransport::Receive(Message& message) {
@@ -57,9 +55,7 @@ bool SharedMemoryTransport::Receive(Message& message) {
   }
   std::memcpy(message.payload.data(), slot + sizeof(Header), payloadSize_);
 
-  ring_.CommitRead();
-
-  return true;
+  return ring_.CommitRead();
 }
 
 SharedMemoryTransport::SharedMemoryTransport(BlockingRingBuffer ring, std::size_t payloadSize)

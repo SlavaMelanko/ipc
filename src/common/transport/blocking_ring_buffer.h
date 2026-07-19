@@ -31,10 +31,10 @@ class BlockingRingBuffer {
   ~BlockingRingBuffer() = default;
 
   std::byte* AcquireWriteSlot();
-  void CommitWrite();
+  bool CommitWrite();
 
   std::byte* AcquireReadSlot();
-  void CommitRead();
+  bool CommitRead();
 
  private:
   BlockingRingBuffer(MappedSegment segment, NamedSemaphore freeSlots,

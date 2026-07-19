@@ -82,14 +82,18 @@ std::byte* BlockingRingBuffer::AcquireWriteSlot() {
   }
 
   ControlBlock& control = Control();
-  pthread_mutex_lock(&control.cursorMutex);
+  if (Failed(pthread_mutex_lock(&control.cursorMutex))) {
+    return nullptr;
+  }
   std::uint64_t writePos = control.writeCursor++;
-  pthread_mutex_unlock(&control.cursorMutex);
+  if (Failed(pthread_mutex_unlock(&control.cursorMutex))) {
+    return nullptr;
+  }
 
   return SlotAt(writePos);
 }
 
-void BlockingRingBuffer::CommitWrite() { availableMessages_.Post(); }
+bool BlockingRingBuffer::CommitWrite() { return Ok(availableMessages_.Post()); }
 
 std::byte* BlockingRingBuffer::AcquireReadSlot() {
   if (Failed(availableMessages_.Wait())) {
@@ -97,14 +101,18 @@ std::byte* BlockingRingBuffer::AcquireReadSlot() {
   }
 
   ControlBlock& control = Control();
-  pthread_mutex_lock(&control.cursorMutex);
+  if (Failed(pthread_mutex_lock(&control.cursorMutex))) {
+    return nullptr;
+  }
   std::uint64_t readPos = control.readCursor++;
-  pthread_mutex_unlock(&control.cursorMutex);
+  if (Failed(pthread_mutex_unlock(&control.cursorMutex))) {
+    return nullptr;
+  }
 
   return SlotAt(readPos);
 }
 
-void BlockingRingBuffer::CommitRead() { freeSlots_.Post(); }
+bool BlockingRingBuffer::CommitRead() { return Ok(freeSlots_.Post()); }
 
 BlockingRingBuffer::BlockingRingBuffer(MappedSegment segment, NamedSemaphore freeSlots,
                                        NamedSemaphore availableMessages, std::size_t payloadSize,
