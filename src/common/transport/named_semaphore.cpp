@@ -29,9 +29,6 @@ std::optional<NamedSemaphore> NamedSemaphore::Attach(const std::string& name) {
   return NamedSemaphore(name, sem, /*isOwner=*/false);
 }
 
-NamedSemaphore::NamedSemaphore(std::string name, sem_t* sem, bool isOwner)
-    : name_(std::move(name)), sem_(sem), isOwner_(isOwner) {}
-
 NamedSemaphore::NamedSemaphore(NamedSemaphore&& other) noexcept
     : name_(std::move(other.name_)), sem_(other.sem_), isOwner_(other.isOwner_) {
   other.sem_ = nullptr;
@@ -66,5 +63,8 @@ NamedSemaphore::~NamedSemaphore() {
     sem_unlink(name_.c_str());
   }
 }
+
+NamedSemaphore::NamedSemaphore(std::string name, sem_t* sem, bool isOwner)
+    : name_(std::move(name)), sem_(sem), isOwner_(isOwner) {}
 
 }  // namespace ipc::common

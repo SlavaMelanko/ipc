@@ -11,14 +11,14 @@ namespace ipc::common {
 // Owns one POSIX named semaphore; sem_unlink only if this side created it.
 class NamedSemaphore {
  public:
+  static std::optional<NamedSemaphore> Create(const std::string& name, unsigned int initialValue);
+  static std::optional<NamedSemaphore> Attach(const std::string& name);
+
   NamedSemaphore(const NamedSemaphore&) = delete;
   NamedSemaphore& operator=(const NamedSemaphore&) = delete;
   NamedSemaphore(NamedSemaphore&& other) noexcept;
   NamedSemaphore& operator=(NamedSemaphore&& other) noexcept;
   ~NamedSemaphore();
-
-  static std::optional<NamedSemaphore> Create(const std::string& name, unsigned int initialValue);
-  static std::optional<NamedSemaphore> Attach(const std::string& name);
 
   int Wait() { return sem_wait(sem_); }
   int Post() { return sem_post(sem_); }

@@ -20,48 +20,6 @@ void* Map(int fd, std::size_t size) {
 
 }  // namespace
 
-MappedSegment::MappedSegment(std::string name, void* mapping, std::size_t size, bool isOwner)
-    : name_(std::move(name)), mapping_(mapping), size_(size), isOwner_(isOwner) {}
-
-MappedSegment::MappedSegment(MappedSegment&& other) noexcept
-    : name_(std::move(other.name_)),
-      mapping_(other.mapping_),
-      size_(other.size_),
-      isOwner_(other.isOwner_) {
-  other.mapping_ = nullptr;
-  other.isOwner_ = false;
-}
-
-MappedSegment& MappedSegment::operator=(MappedSegment&& other) noexcept {
-  if (this != &other) {
-    if (mapping_ != nullptr) {
-      munmap(mapping_, size_);
-    }
-    if (isOwner_) {
-      shm_unlink(name_.c_str());
-    }
-
-    name_ = std::move(other.name_);
-    mapping_ = other.mapping_;
-    size_ = other.size_;
-    isOwner_ = other.isOwner_;
-
-    other.mapping_ = nullptr;
-    other.isOwner_ = false;
-  }
-
-  return *this;
-}
-
-MappedSegment::~MappedSegment() {
-  if (mapping_ != nullptr) {
-    munmap(mapping_, size_);
-  }
-  if (isOwner_) {
-    shm_unlink(name_.c_str());
-  }
-}
-
 std::optional<MappedSegment> MappedSegment::Create(const std::string& name, std::size_t size) {
   int fd = shm_open(name.c_str(), O_RDWR | O_CREAT | O_EXCL, kOwnerReadWrite);
   if (fd == -1) {
@@ -108,5 +66,47 @@ std::optional<MappedSegment> MappedSegment::Attach(const std::string& name, std:
 
   return MappedSegment(name, mapping, size, /*isOwner=*/false);
 }
+
+MappedSegment::MappedSegment(MappedSegment&& other) noexcept
+    : name_(std::move(other.name_)),
+      mapping_(other.mapping_),
+      size_(other.size_),
+      isOwner_(other.isOwner_) {
+  other.mapping_ = nullptr;
+  other.isOwner_ = false;
+}
+
+MappedSegment& MappedSegment::operator=(MappedSegment&& other) noexcept {
+  if (this != &other) {
+    if (mapping_ != nullptr) {
+      munmap(mapping_, size_);
+    }
+    if (isOwner_) {
+      shm_unlink(name_.c_str());
+    }
+
+    name_ = std::move(other.name_);
+    mapping_ = other.mapping_;
+    size_ = other.size_;
+    isOwner_ = other.isOwner_;
+
+    other.mapping_ = nullptr;
+    other.isOwner_ = false;
+  }
+
+  return *this;
+}
+
+MappedSegment::~MappedSegment() {
+  if (mapping_ != nullptr) {
+    munmap(mapping_, size_);
+  }
+  if (isOwner_) {
+    shm_unlink(name_.c_str());
+  }
+}
+
+MappedSegment::MappedSegment(std::string name, void* mapping, std::size_t size, bool isOwner)
+    : name_(std::move(name)), mapping_(mapping), size_(size), isOwner_(isOwner) {}
 
 }  // namespace ipc::common
