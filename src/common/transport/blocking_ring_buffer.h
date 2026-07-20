@@ -33,8 +33,17 @@ class BlockingRingBuffer {
   std::byte* AcquireWriteSlot();
   bool CommitWrite();
 
+  // Blocks until a message is available, retrying in bounded steps so the
+  // producer's PID can be periodically checked. Returns nullptr on generic
+  // failure or once the producer is confirmed dead -- callers that care
+  // about the distinction should check PeerClosed() after a null return.
   std::byte* AcquireReadSlot();
   bool CommitRead();
+
+  // True if AcquireReadSlot()'s most recent failure was a confirmed-dead
+  // producer, not a generic error. Best-effort -- see AGENTS.md's "Waking a
+  // blocked send()/receive()" for the narrower gap that remains.
+  [[nodiscard]] bool PeerClosed() const { return peerClosed_; }
 
  private:
   BlockingRingBuffer(MappedSegment segment, NamedSemaphore freeSlots,
@@ -49,6 +58,7 @@ class BlockingRingBuffer {
   NamedSemaphore availableMessages_;
   std::size_t payloadSize_;
   std::size_t slotCount_;
+  bool peerClosed_ = false;
 };
 
 }  // namespace ipc::common

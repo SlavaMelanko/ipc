@@ -167,8 +167,25 @@ std::byte* BlockingRingBuffer::AcquireWriteSlot() {
 bool BlockingRingBuffer::CommitWrite() { return Ok(availableMessages_.Post()); }
 
 std::byte* BlockingRingBuffer::AcquireReadSlot() {
-  if (Failed(availableMessages_.Wait())) {
-    return nullptr;
+  peerClosed_ = false;
+
+  constexpr std::chrono::milliseconds kWaitBound{150};
+  for (;;) {
+    auto result = availableMessages_.WaitFor(kWaitBound);
+    if (result == NamedSemaphore::WaitResult::kAcquired) {
+      break;
+    }
+    if (result == NamedSemaphore::WaitResult::kError) {
+      return nullptr;
+    }
+
+    // Timed out: no message yet. Check whether the producer that would send
+    // one is still alive before waiting again -- see "Waking a blocked
+    // send()/receive()" in AGENTS.md.
+    if (!IsProcessAlive(Control().producerPid)) {
+      peerClosed_ = true;
+      return nullptr;
+    }
   }
 
   ControlBlock& control = Control();
