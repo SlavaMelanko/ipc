@@ -53,6 +53,7 @@ ipc_enable_warnings(producer-cli)
 add_library(consumer_lib
   src/consumer/app.cpp
   src/consumer/command_line_parser.cpp
+  src/consumer/stats_reporter.cpp
   src/consumer/transfer_engine.cpp
 )
 target_include_directories(consumer_lib PUBLIC src)

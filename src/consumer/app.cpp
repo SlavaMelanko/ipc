@@ -5,9 +5,11 @@
 #include <utility>
 
 #include "common/control/control_panel.h"
+#include "common/message/header.h"
 #include "common/message/message_validator.h"
 #include "common/transport/shared_memory_transport.h"
 #include "consumer/config.h"
+#include "consumer/stats_reporter.h"
 #include "consumer/transfer_engine.h"
 
 namespace ipc::consumer {
@@ -39,13 +41,14 @@ bool App::Run() const {
   TransferEngine engine(std::move(transport), ipc::common::MessageValidator(), Config::payloadSize);
 
   ipc::common::ControlPanel controlPanel;
+  StatsReporter statsReporter;
 
   for (;;) {
     if (!controlPanel.WaitIfPaused()) {
       break;
     }
 
-    auto result = engine.ReceiveNext();
+    auto [result, message] = engine.ReceiveNext();
     if (result == ipc::common::ReceiveResult::kEndOfStream) {
       break;
     }
@@ -54,6 +57,8 @@ bool App::Run() const {
 
       return false;
     }
+
+    statsReporter.RecordMessage(sizeof(ipc::common::Header) + message.header.payloadSize);
   }
 
   if (engine.ReceivedCount() != cmdArgs_.count) {
