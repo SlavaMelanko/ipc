@@ -18,9 +18,11 @@ std::string FreeSlotsName(const std::string& name) { return name + "_free"; }
 std::string AvailableMessagesName(const std::string& name) { return name + "_avail"; }
 
 // True only if another producer is genuinely still running; otherwise
-// unlinks any stale segment left behind and returns false.
-bool RefuseIfLive(const std::string& name, std::size_t ringCapacityBytes) {
-  auto existing = MappedSegment::Attach(name, ringCapacityBytes);
+// unlinks any stale segment left behind and returns false. Attaches with
+// sizeof(ControlBlock), not ringCapacityBytes, so a stale segment from a
+// differently-sized run is still detected.
+bool RefuseIfLive(const std::string& name) {
+  auto existing = MappedSegment::Attach(name, sizeof(ControlBlock));
   if (!existing) {
     return false;
   }
@@ -51,7 +53,7 @@ std::optional<BlockingRingBuffer> BlockingRingBuffer::Create(const std::string& 
     return std::nullopt;
   }
 
-  if (RefuseIfLive(name, ringCapacityBytes)) {
+  if (RefuseIfLive(name)) {
     return std::nullopt;
   }
 
