@@ -29,6 +29,7 @@ if(CLANG_TIDY_BIN)
   add_custom_target(tidy
     COMMAND ${CLANG_TIDY_BIN} --warnings-as-errors=* ${IPC_SOURCES}
             -- -x c++ -std=c++${CMAKE_CXX_STANDARD} -I${CMAKE_SOURCE_DIR}/src
+            -I${cli11_SOURCE_DIR}/include
     COMMENT "clang-tidy: linting sources"
     VERBATIM)
 endif()

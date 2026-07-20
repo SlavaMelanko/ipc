@@ -3,14 +3,13 @@
 
 #include <cstdint>
 
-#include "producer/command_line_parser.h"
+#include "common/app_config.h"
 
 namespace ipc::producer {
 
 class App {
  public:
-  // Throws std::runtime_error if argv fails to parse.
-  App(int argc, char** argv);
+  explicit App(ipc::common::AppConfig config);
 
   // Sends the parsed --count of fixed-size sequenced messages through a
   // freshly created ring, blocking on backpressure as needed. Responds to
@@ -19,7 +18,7 @@ class App {
   [[nodiscard]] bool Run() const;
 
  private:
-  CommandLineArgs cmdArgs_;
+  ipc::common::AppConfig config_;
   // One per process lifetime -- lets a consumer distinguish a producer
   // restart from data loss (see AGENTS.md's "Session ID").
   std::uint64_t sessionId_;

@@ -1,44 +1,29 @@
 #include "consumer/app.h"
 
 #include <print>
-#include <stdexcept>
 #include <utility>
 
 #include "common/control/control_panel.h"
 #include "common/message/header.h"
 #include "common/message/message_validator.h"
 #include "common/transport/shared_memory_transport.h"
-#include "consumer/config.h"
 #include "consumer/stats_reporter.h"
 #include "consumer/transfer_engine.h"
 
 namespace ipc::consumer {
 
-namespace {
-
-CommandLineArgs ParseOrThrow(int argc, char** argv) {
-  auto cmdArgs = ParseCommandLine(argc, argv);
-  if (!cmdArgs) {
-    throw std::runtime_error(cmdArgs.error());
-  }
-
-  return *cmdArgs;
-}
-
-}  // namespace
-
-App::App(int argc, char** argv) : cmdArgs_(ParseOrThrow(argc, argv)) {}
+App::App(ipc::common::AppConfig config) : config_(config) {}
 
 bool App::Run() const {
-  auto transport = ipc::common::SharedMemoryTransport::AttachConsumer(Config::payloadSize,
-                                                                      Config::ringCapacityBytes);
+  auto transport = ipc::common::SharedMemoryTransport::AttachConsumer(config_.payloadSize,
+                                                                      config_.ringCapacityBytes);
   if (!transport) {
     std::println(stderr, "consumer: failed to attach to shared-memory segment");
 
     return false;
   }
 
-  TransferEngine engine(std::move(transport), ipc::common::MessageValidator(), Config::payloadSize);
+  TransferEngine engine(std::move(transport), ipc::common::MessageValidator(), config_.payloadSize);
 
   ipc::common::ControlPanel controlPanel;
   StatsReporter statsReporter;
@@ -61,8 +46,8 @@ bool App::Run() const {
     statsReporter.RecordMessage(sizeof(ipc::common::Header) + message.header.payloadSize);
   }
 
-  if (engine.ReceivedCount() != cmdArgs_.count) {
-    std::println(stderr, "consumer: expected {} messages, received {}", cmdArgs_.count,
+  if (engine.ReceivedCount() != config_.count) {
+    std::println(stderr, "consumer: expected {} messages, received {}", config_.count,
                  engine.ReceivedCount());
 
     return false;

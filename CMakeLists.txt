@@ -13,7 +13,16 @@ include(cmake/CompilerWarnings.cmake)
 
 find_package(Threads REQUIRED)
 
+include(FetchContent)
+FetchContent_Declare(
+  CLI11
+  GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git
+  GIT_TAG v2.4.2
+)
+FetchContent_MakeAvailable(CLI11)
+
 add_library(common_lib
+  src/common/cli.cpp
   src/common/control/controller.cpp
   src/common/control/signal_handler.cpp
   src/common/control/stdin_watcher.cpp
@@ -24,12 +33,11 @@ add_library(common_lib
   src/common/transport/mapped_segment.cpp
   src/common/transport/named_semaphore.cpp
   src/common/transport/shared_memory_transport.cpp
-  src/common/util/cli.cpp
   src/common/util/clock.cpp
   src/common/util/process.cpp
 )
 target_include_directories(common_lib PUBLIC src)
-target_link_libraries(common_lib PUBLIC Threads::Threads)
+target_link_libraries(common_lib PUBLIC Threads::Threads CLI11::CLI11)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   target_link_libraries(common_lib PUBLIC rt)
 endif()
@@ -37,7 +45,6 @@ ipc_enable_warnings(common_lib)
 
 add_library(producer_lib
   src/producer/app.cpp
-  src/producer/command_line_parser.cpp
   src/producer/payload/deterministic_payload_generator.cpp
   src/producer/payload/payload_generator_factory.cpp
   src/producer/transfer_engine.cpp
@@ -52,7 +59,6 @@ ipc_enable_warnings(producer-cli)
 
 add_library(consumer_lib
   src/consumer/app.cpp
-  src/consumer/command_line_parser.cpp
   src/consumer/stats_reporter.cpp
   src/consumer/transfer_engine.cpp
 )

@@ -1,14 +1,13 @@
 #ifndef IPC_CONSUMER_APP_H_
 #define IPC_CONSUMER_APP_H_
 
-#include "consumer/command_line_parser.h"
+#include "common/app_config.h"
 
 namespace ipc::consumer {
 
 class App {
  public:
-  // Throws std::runtime_error if argv fails to parse.
-  App(int argc, char** argv);
+  explicit App(ipc::common::AppConfig config);
 
   // Attaches to the producer's shared-memory segment and receives until
   // EndOfStream, validating each message via PacketValidator and asserting
@@ -19,7 +18,7 @@ class App {
   [[nodiscard]] bool Run() const;
 
  private:
-  CommandLineArgs cmdArgs_;
+  ipc::common::AppConfig config_;
 };
 
 }  // namespace ipc::consumer

@@ -1,49 +1,34 @@
 #include "producer/app.h"
 
 #include <print>
-#include <stdexcept>
 #include <utility>
 
 #include "common/control/control_panel.h"
 #include "common/transport/shared_memory_transport.h"
 #include "common/util/rand.h"
-#include "producer/config.h"
 #include "producer/payload/payload_generator_factory.h"
 #include "producer/transfer_engine.h"
 
 namespace ipc::producer {
 
-namespace {
-
-CommandLineArgs ParseOrThrow(int argc, char** argv) {
-  auto cmdArgs = ParseCommandLine(argc, argv);
-  if (!cmdArgs) {
-    throw std::runtime_error(cmdArgs.error());
-  }
-
-  return *cmdArgs;
-}
-
-}  // namespace
-
-App::App(int argc, char** argv)
-    : cmdArgs_(ParseOrThrow(argc, argv)), sessionId_(ipc::common::RandomNumber<std::uint64_t>()) {}
+App::App(ipc::common::AppConfig config)
+    : config_(config), sessionId_(ipc::common::RandomNumber<std::uint64_t>()) {}
 
 bool App::Run() const {
-  auto transport = ipc::common::SharedMemoryTransport::CreateProducer(Config::payloadSize,
-                                                                      Config::ringCapacityBytes);
+  auto transport = ipc::common::SharedMemoryTransport::CreateProducer(config_.payloadSize,
+                                                                      config_.ringCapacityBytes);
   if (!transport) {
     std::println(stderr, "producer: failed to create shared-memory segment");
 
     return false;
   }
 
-  TransferEngine engine(std::move(transport), CreatePayloadGenerator(), Config::payloadSize,
+  TransferEngine engine(std::move(transport), CreatePayloadGenerator(), config_.payloadSize,
                         sessionId_);
 
   ipc::common::ControlPanel controlPanel;
 
-  while (engine.SentCount() < cmdArgs_.count) {
+  while (engine.SentCount() < config_.count) {
     if (!controlPanel.WaitIfPaused()) {
       break;
     }
