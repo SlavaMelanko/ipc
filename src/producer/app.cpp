@@ -11,6 +11,7 @@
 #include "common/util/clock.h"
 #include "common/util/rand.h"
 #include "producer/config.h"
+#include "producer/deterministic_payload_generator.h"
 
 namespace ipc::producer {
 
@@ -23,15 +24,6 @@ CommandLineArgs ParseOrThrow(int argc, char** argv) {
   }
 
   return *cmdArgs;
-}
-
-// No IPayloadGenerator interface in v1 (see AGENTS.md) -- one implementation
-// doesn't justify one yet. Deterministic pattern lets a consumer/test verify
-// payload bytes, not just the header.
-void FillPayload(std::span<std::byte> payload, std::uint64_t sequenceNumber) {
-  for (std::size_t i = 0; i < payload.size(); ++i) {
-    payload[i] = static_cast<std::byte>((sequenceNumber + i) & 0xFF);
-  }
 }
 
 }  // namespace
@@ -51,9 +43,10 @@ bool App::Run() const {
 
   std::vector<std::byte> payloadBuffer(Config::payloadSize);
   const auto sessionId = ipc::common::RandomNumber<std::uint64_t>();
+  DeterministicPayloadGenerator payloadGenerator;
 
   for (std::uint64_t sequenceNumber = 0; sequenceNumber < count; ++sequenceNumber) {
-    FillPayload(payloadBuffer, sequenceNumber);
+    payloadGenerator.Generate(payloadBuffer, sequenceNumber);
 
     ipc::common::Header header{.sessionId = sessionId,
                                .timestamp = ipc::common::CurrentTimestamp(),

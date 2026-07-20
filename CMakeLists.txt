@@ -34,6 +34,7 @@ ipc_enable_warnings(common_lib)
 add_library(producer_lib
   src/producer/app.cpp
   src/producer/command_line_parser.cpp
+  src/producer/deterministic_payload_generator.cpp
 )
 target_include_directories(producer_lib PUBLIC src)
 target_link_libraries(producer_lib PUBLIC common_lib)
