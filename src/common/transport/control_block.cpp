@@ -22,6 +22,11 @@ bool InitProcessSharedMutex(pthread_mutex_t& mutex) {
 namespace ipc::common {
 
 bool InitControlBlock(ControlBlock& control) {
+  control.producerPid = 0;
+  control.state.store(static_cast<std::uint32_t>(LifecycleState::kInitializing),
+                      std::memory_order_release);
+  control.layoutVersion = 0;
+
   if (!InitProcessSharedMutex(control.cursorMutex)) {
     return false;
   }
