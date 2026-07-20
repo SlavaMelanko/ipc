@@ -35,8 +35,7 @@ bool App::Run() const {
     return false;
   }
 
-  ipc::common::MessageValidator validator;
-  TransferEngine engine(std::move(transport), validator, Config::payloadSize);
+  TransferEngine engine(std::move(transport), ipc::common::MessageValidator(), Config::payloadSize);
 
   for (;;) {
     auto result = engine.ReceiveNext();
@@ -57,8 +56,8 @@ bool App::Run() const {
     return false;
   }
 
-  if (validator.ErrorCount() != 0) {
-    std::println(stderr, "consumer: {} defect(s) detected", validator.ErrorCount());
+  if (engine.ErrorCount() != 0) {
+    std::println(stderr, "consumer: {} defect(s) detected", engine.ErrorCount());
 
     return false;
   }
