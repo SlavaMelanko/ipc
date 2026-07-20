@@ -1,5 +1,5 @@
-#ifndef IPC_PRODUCER_PAYLOAD_GENERATOR_H_
-#define IPC_PRODUCER_PAYLOAD_GENERATOR_H_
+#ifndef IPC_PRODUCER_PAYLOAD_PAYLOAD_GENERATOR_H_
+#define IPC_PRODUCER_PAYLOAD_PAYLOAD_GENERATOR_H_
 
 #include <cstddef>
 #include <cstdint>
@@ -16,4 +16,4 @@ class IPayloadGenerator {
 
 }  // namespace ipc::producer
 
-#endif  // IPC_PRODUCER_PAYLOAD_GENERATOR_H_
+#endif  // IPC_PRODUCER_PAYLOAD_PAYLOAD_GENERATOR_H_

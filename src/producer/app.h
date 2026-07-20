@@ -1,6 +1,8 @@
 #ifndef IPC_PRODUCER_APP_H_
 #define IPC_PRODUCER_APP_H_
 
+#include <cstdint>
+
 #include "producer/command_line_parser.h"
 
 namespace ipc::producer {
@@ -17,6 +19,9 @@ class App {
 
  private:
   CommandLineArgs cmdArgs_;
+  // One per process lifetime -- lets a consumer distinguish a producer
+  // restart from data loss (see AGENTS.md's "Session ID").
+  std::uint64_t sessionId_;
 };
 
 }  // namespace ipc::producer

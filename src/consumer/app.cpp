@@ -1,14 +1,13 @@
 #include "consumer/app.h"
 
-#include <cstddef>
 #include <print>
 #include <stdexcept>
-#include <vector>
+#include <utility>
 
-#include "common/message/message.h"
 #include "common/message/message_validator.h"
 #include "common/transport/shared_memory_transport.h"
 #include "consumer/config.h"
+#include "consumer/transfer_engine.h"
 
 namespace ipc::consumer {
 
@@ -36,30 +35,24 @@ bool App::Run() const {
     return false;
   }
 
-  std::vector<std::byte> payloadBuffer(Config::payloadSize);
-  std::uint64_t receivedCount = 0;
   ipc::common::MessageValidator validator;
+  TransferEngine engine(std::move(transport), validator, Config::payloadSize);
 
   for (;;) {
-    ipc::common::Message message{.header = {}, .payload = payloadBuffer};
-
-    auto result = transport->Receive(message);
+    auto result = engine.ReceiveNext();
     if (result == ipc::common::ReceiveResult::kEndOfStream) {
       break;
     }
     if (result == ipc::common::ReceiveResult::kMalformed) {
-      std::println(stderr, "consumer: malformed frame at receivedCount={}", receivedCount);
+      std::println(stderr, "consumer: malformed frame at receivedCount={}", engine.ReceivedCount());
 
       return false;
     }
-
-    validator.Validate(message);
-    ++receivedCount;
   }
 
-  if (receivedCount != cmdArgs_.count) {
+  if (engine.ReceivedCount() != cmdArgs_.count) {
     std::println(stderr, "consumer: expected {} messages, received {}", cmdArgs_.count,
-                 receivedCount);
+                 engine.ReceivedCount());
 
     return false;
   }
@@ -70,7 +63,7 @@ bool App::Run() const {
     return false;
   }
 
-  std::println("consumer: received {} messages", receivedCount);
+  std::println("consumer: received {} messages", engine.ReceivedCount());
 
   return true;
 }

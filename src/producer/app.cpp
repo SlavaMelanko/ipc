@@ -1,17 +1,14 @@
 #include "producer/app.h"
 
-#include <cstddef>
 #include <print>
 #include <stdexcept>
-#include <vector>
+#include <utility>
 
-#include "common/message/checksum.h"
-#include "common/message/message.h"
 #include "common/transport/shared_memory_transport.h"
-#include "common/util/clock.h"
 #include "common/util/rand.h"
 #include "producer/config.h"
-#include "producer/deterministic_payload_generator.h"
+#include "producer/payload/payload_generator_factory.h"
+#include "producer/transfer_engine.h"
 
 namespace ipc::producer {
 
@@ -28,11 +25,10 @@ CommandLineArgs ParseOrThrow(int argc, char** argv) {
 
 }  // namespace
 
-App::App(int argc, char** argv) : cmdArgs_(ParseOrThrow(argc, argv)) {}
+App::App(int argc, char** argv)
+    : cmdArgs_(ParseOrThrow(argc, argv)), sessionId_(ipc::common::RandomNumber<std::uint64_t>()) {}
 
 bool App::Run() const {
-  std::uint64_t count = cmdArgs_.count;
-
   auto transport = ipc::common::SharedMemoryTransport::CreateProducer(Config::payloadSize,
                                                                       Config::ringCapacityBytes);
   if (!transport) {
@@ -41,31 +37,20 @@ bool App::Run() const {
     return false;
   }
 
-  std::vector<std::byte> payloadBuffer(Config::payloadSize);
-  const auto sessionId = ipc::common::RandomNumber<std::uint64_t>();
-  DeterministicPayloadGenerator payloadGenerator;
+  TransferEngine engine(std::move(transport), CreatePayloadGenerator(), Config::payloadSize,
+                        sessionId_);
 
-  for (std::uint64_t sequenceNumber = 0; sequenceNumber < count; ++sequenceNumber) {
-    payloadGenerator.Generate(payloadBuffer, sequenceNumber);
-
-    ipc::common::Header header{.sessionId = sessionId,
-                               .timestamp = ipc::common::CurrentTimestamp(),
-                               .sequenceNumber = sequenceNumber,
-                               .payloadSize = static_cast<std::uint32_t>(Config::payloadSize),
-                               .checksum = 0};
-    header.checksum = ComputeChecksum(header, payloadBuffer);
-
-    ipc::common::Message message{.header = header, .payload = payloadBuffer};
-
-    if (!transport->Send(message)) {
-      std::println(stderr, "producer: send failed at sequenceNumber={}", sequenceNumber);
+  while (engine.SentCount() < cmdArgs_.count) {
+    if (!engine.SendNext()) {
+      std::println(stderr, "producer: send failed at sequenceNumber={}", engine.SentCount());
 
       return false;
     }
   }
 
-  transport->Close();
-  std::println("producer: sent {} messages", count);
+  engine.Close();
+
+  std::println("producer: sent {} messages", engine.SentCount());
 
   return true;
 }

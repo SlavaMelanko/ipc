@@ -1,7 +1,7 @@
-#ifndef IPC_PRODUCER_DETERMINISTIC_PAYLOAD_GENERATOR_H_
-#define IPC_PRODUCER_DETERMINISTIC_PAYLOAD_GENERATOR_H_
+#ifndef IPC_PRODUCER_PAYLOAD_DETERMINISTIC_PAYLOAD_GENERATOR_H_
+#define IPC_PRODUCER_PAYLOAD_DETERMINISTIC_PAYLOAD_GENERATOR_H_
 
-#include "producer/payload_generator.h"
+#include "producer/payload/payload_generator.h"
 
 namespace ipc::producer {
 

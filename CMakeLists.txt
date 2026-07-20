@@ -35,7 +35,9 @@ ipc_enable_warnings(common_lib)
 add_library(producer_lib
   src/producer/app.cpp
   src/producer/command_line_parser.cpp
-  src/producer/deterministic_payload_generator.cpp
+  src/producer/payload/deterministic_payload_generator.cpp
+  src/producer/payload/payload_generator_factory.cpp
+  src/producer/transfer_engine.cpp
 )
 target_include_directories(producer_lib PUBLIC src)
 target_link_libraries(producer_lib PUBLIC common_lib)
@@ -48,6 +50,7 @@ ipc_enable_warnings(producer-cli)
 add_library(consumer_lib
   src/consumer/app.cpp
   src/consumer/command_line_parser.cpp
+  src/consumer/transfer_engine.cpp
 )
 target_include_directories(consumer_lib PUBLIC src)
 target_link_libraries(consumer_lib PUBLIC common_lib)

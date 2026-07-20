@@ -1,4 +1,4 @@
-#include "producer/deterministic_payload_generator.h"
+#include "producer/payload/deterministic_payload_generator.h"
 
 namespace ipc::producer {
 
