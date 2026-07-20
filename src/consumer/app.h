@@ -12,9 +12,10 @@ class App {
 
   // Attaches to the producer's shared-memory segment and receives until
   // EndOfStream, validating each message via PacketValidator and asserting
-  // the final count matches --count. Returns false if attaching fails, a
-  // malformed frame is seen, the count doesn't match, or any defect was
-  // detected (PacketValidator::ErrorCount() != 0).
+  // the final count matches --count. Responds to 'p'/'r'/'q' on stdin and
+  // SIGINT/SIGTERM by pausing/resuming/stopping early. Returns false if
+  // attaching fails, a malformed frame is seen, the count doesn't match, or
+  // any defect was detected (PacketValidator::ErrorCount() != 0).
   [[nodiscard]] bool Run() const;
 
  private:

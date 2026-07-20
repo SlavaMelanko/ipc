@@ -13,8 +13,9 @@ class App {
   App(int argc, char** argv);
 
   // Sends the parsed --count of fixed-size sequenced messages through a
-  // freshly created ring, blocking on backpressure as needed. Returns false
-  // on any transport failure.
+  // freshly created ring, blocking on backpressure as needed. Responds to
+  // 'p'/'r'/'q' on stdin and SIGINT/SIGTERM by pausing/resuming/stopping
+  // early. Returns false on any transport failure.
   [[nodiscard]] bool Run() const;
 
  private:

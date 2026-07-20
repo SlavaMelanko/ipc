@@ -14,6 +14,9 @@ include(cmake/CompilerWarnings.cmake)
 find_package(Threads REQUIRED)
 
 add_library(common_lib
+  src/common/control/controller.cpp
+  src/common/control/signal_handler.cpp
+  src/common/control/stdin_watcher.cpp
   src/common/message/checksum.cpp
   src/common/message/message_validator.cpp
   src/common/transport/blocking_ring_buffer.cpp

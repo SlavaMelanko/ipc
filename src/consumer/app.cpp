@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <utility>
 
+#include "common/control/control_panel.h"
 #include "common/message/message_validator.h"
 #include "common/transport/shared_memory_transport.h"
 #include "consumer/config.h"
@@ -37,7 +38,13 @@ bool App::Run() const {
 
   TransferEngine engine(std::move(transport), ipc::common::MessageValidator(), Config::payloadSize);
 
+  ipc::common::ControlPanel controlPanel;
+
   for (;;) {
+    if (!controlPanel.WaitIfPaused()) {
+      break;
+    }
+
     auto result = engine.ReceiveNext();
     if (result == ipc::common::ReceiveResult::kEndOfStream) {
       break;

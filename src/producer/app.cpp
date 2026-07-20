@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <utility>
 
+#include "common/control/control_panel.h"
 #include "common/transport/shared_memory_transport.h"
 #include "common/util/rand.h"
 #include "producer/config.h"
@@ -40,7 +41,12 @@ bool App::Run() const {
   TransferEngine engine(std::move(transport), CreatePayloadGenerator(), Config::payloadSize,
                         sessionId_);
 
+  ipc::common::ControlPanel controlPanel;
+
   while (engine.SentCount() < cmdArgs_.count) {
+    if (!controlPanel.WaitIfPaused()) {
+      break;
+    }
     if (!engine.SendNext()) {
       std::println(stderr, "producer: send failed at sequenceNumber={}", engine.SentCount());
 
