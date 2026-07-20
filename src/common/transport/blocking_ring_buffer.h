@@ -30,20 +30,32 @@ class BlockingRingBuffer {
   BlockingRingBuffer& operator=(BlockingRingBuffer&&) noexcept = default;
   ~BlockingRingBuffer() = default;
 
+  // Why AcquireReadSlot() last returned nullptr. Best-effort for kPeerClosed
+  // -- see AGENTS.md's "Waking a blocked send()/receive()" for the narrower
+  // gap that remains.
+  enum class ReadFailure : std::uint8_t {
+    kNone,
+    kError,
+    kPeerClosed,
+    kEndOfStream,
+  };
+
   std::byte* AcquireWriteSlot();
   bool CommitWrite();
 
   // Blocks until a message is available, retrying in bounded steps so the
-  // producer's PID can be periodically checked. Returns nullptr on generic
-  // failure or once the producer is confirmed dead -- callers that care
-  // about the distinction should check PeerClosed() after a null return.
+  // producer's PID and lifecycle state can be periodically checked. Returns
+  // nullptr on any ReadFailure other than kNone; callers that care why should
+  // check LastReadFailure() after a null return.
   std::byte* AcquireReadSlot();
   bool CommitRead();
 
-  // True if AcquireReadSlot()'s most recent failure was a confirmed-dead
-  // producer, not a generic error. Best-effort -- see AGENTS.md's "Waking a
-  // blocked send()/receive()" for the narrower gap that remains.
-  [[nodiscard]] bool PeerClosed() const { return peerClosed_; }
+  [[nodiscard]] ReadFailure LastReadFailure() const { return lastReadFailure_; }
+
+  // Producer-only: marks no more messages are coming, then Closed. A
+  // consumer blocked in AcquireReadSlot() notices within one poll interval
+  // -- see AGENTS.md's "Clean producer shutdown and the receive predicate".
+  void Close();
 
  private:
   BlockingRingBuffer(MappedSegment segment, NamedSemaphore freeSlots,
@@ -58,7 +70,7 @@ class BlockingRingBuffer {
   NamedSemaphore availableMessages_;
   std::size_t payloadSize_;
   std::size_t slotCount_;
-  bool peerClosed_ = false;
+  ReadFailure lastReadFailure_ = ReadFailure::kNone;
 };
 
 }  // namespace ipc::common

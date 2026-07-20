@@ -23,7 +23,8 @@ class SharedMemoryTransport : public ITransport {
   ~SharedMemoryTransport() override = default;
 
   bool Send(const Message& message) override;
-  bool Receive(Message& message) override;
+  ReceiveResult Receive(Message& message) override;
+  void Close() override;
 
  private:
   SharedMemoryTransport(BlockingRingBuffer ring, std::size_t payloadSize);

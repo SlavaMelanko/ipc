@@ -27,8 +27,6 @@ CommandLineArgs ParseOrThrow(int argc, char** argv) {
 App::App(int argc, char** argv) : cmdArgs_(ParseOrThrow(argc, argv)) {}
 
 bool App::Run() const {
-  std::uint64_t count = cmdArgs_.count;
-
   auto transport = ipc::common::SharedMemoryTransport::AttachConsumer(Config::payloadSize,
                                                                       Config::ringCapacityBytes);
   if (!transport) {
@@ -38,13 +36,18 @@ bool App::Run() const {
   }
 
   std::vector<std::byte> payloadBuffer(Config::payloadSize);
+  std::uint64_t expectedSequenceNumber = 0;
 
-  for (std::uint64_t expectedSequenceNumber = 0; expectedSequenceNumber < count;
-       ++expectedSequenceNumber) {
+  for (;;) {
     ipc::common::Message message{.header = {}, .payload = payloadBuffer};
 
-    if (!transport->Receive(message)) {
-      std::println(stderr, "consumer: receive failed at sequenceNumber={}", expectedSequenceNumber);
+    auto result = transport->Receive(message);
+    if (result == ipc::common::ReceiveResult::kEndOfStream) {
+      break;
+    }
+    if (result == ipc::common::ReceiveResult::kMalformed) {
+      std::println(stderr, "consumer: malformed frame at sequenceNumber={}",
+                   expectedSequenceNumber);
 
       return false;
     }
@@ -55,9 +58,18 @@ bool App::Run() const {
 
       return false;
     }
+
+    ++expectedSequenceNumber;
   }
 
-  std::println("consumer: received {} messages", count);
+  if (expectedSequenceNumber != cmdArgs_.count) {
+    std::println(stderr, "consumer: expected {} messages, received {}", cmdArgs_.count,
+                 expectedSequenceNumber);
+
+    return false;
+  }
+
+  std::println("consumer: received {} messages", expectedSequenceNumber);
 
   return true;
 }

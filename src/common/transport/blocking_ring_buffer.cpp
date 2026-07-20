@@ -32,7 +32,7 @@ bool RefuseIfLive(const std::string& name) {
   }
 
   auto* control = static_cast<ControlBlock*>(existing->data());
-  auto state = static_cast<LifecycleState>(control->state.load(std::memory_order_acquire));
+  LifecycleState state = StateManager(*control).GetState();
   std::int32_t producerPid = control->producerPid;
 
   bool looksLive = state == LifecycleState::kInitializing || state == LifecycleState::kReady ||
@@ -59,9 +59,8 @@ bool WaitUntilReady(const std::string& name) {
     auto existing = MappedSegment::Attach(name, sizeof(ControlBlock));
     if (existing) {
       auto* control = static_cast<ControlBlock*>(existing->data());
-      auto state = static_cast<LifecycleState>(control->state.load(std::memory_order_acquire));
 
-      if (state == LifecycleState::kReady) {
+      if (StateManager(*control).GetState() == LifecycleState::kReady) {
         return control->layoutVersion == kWireFormatVersion;
       }
     }
@@ -110,7 +109,7 @@ std::optional<BlockingRingBuffer> BlockingRingBuffer::Create(const std::string& 
     return std::nullopt;
   }
 
-  PublishReady(*control, kWireFormatVersion);
+  StateManager(*control).Ready(kWireFormatVersion);
 
   return BlockingRingBuffer(std::move(*segment), std::move(*freeSlots),
                             std::move(*availableMessages), payloadSize, slotCount);
@@ -167,7 +166,7 @@ std::byte* BlockingRingBuffer::AcquireWriteSlot() {
 bool BlockingRingBuffer::CommitWrite() { return Ok(availableMessages_.Post()); }
 
 std::byte* BlockingRingBuffer::AcquireReadSlot() {
-  peerClosed_ = false;
+  lastReadFailure_ = ReadFailure::kNone;
 
   constexpr std::chrono::milliseconds kWaitBound{150};
   for (;;) {
@@ -176,14 +175,19 @@ std::byte* BlockingRingBuffer::AcquireReadSlot() {
       break;
     }
     if (result == NamedSemaphore::WaitResult::kError) {
+      lastReadFailure_ = ReadFailure::kError;
       return nullptr;
     }
 
-    // Timed out: no message yet. Check whether the producer that would send
-    // one is still alive before waiting again -- see "Waking a blocked
+    // Timed out: no message yet. The producer finishing normally takes
+    // priority over a liveness check -- see "Waking a blocked
     // send()/receive()" in AGENTS.md.
+    if (StateManager(Control()).IsStoppingOrClosed()) {
+      lastReadFailure_ = ReadFailure::kEndOfStream;
+      return nullptr;
+    }
     if (!IsProcessAlive(Control().producerPid)) {
-      peerClosed_ = true;
+      lastReadFailure_ = ReadFailure::kPeerClosed;
       return nullptr;
     }
   }
@@ -201,6 +205,17 @@ std::byte* BlockingRingBuffer::AcquireReadSlot() {
 }
 
 bool BlockingRingBuffer::CommitRead() { return Ok(freeSlots_.Post()); }
+
+void BlockingRingBuffer::Close() {
+  // No availableMessages_.Post() here: that would let a consumer's
+  // AcquireReadSlot() advance readCursor past a slot nothing ever wrote.
+  // AcquireReadSlot()'s bounded wait already rechecks state on every
+  // timeout, so EndOfStream is detected within one poll interval instead of
+  // instantly.
+  StateManager manager(Control());
+  manager.Stop();
+  manager.Close();
+}
 
 BlockingRingBuffer::BlockingRingBuffer(MappedSegment segment, NamedSemaphore freeSlots,
                                        NamedSemaphore availableMessages, std::size_t payloadSize,

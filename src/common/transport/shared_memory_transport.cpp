@@ -43,20 +43,24 @@ bool SharedMemoryTransport::Send(const Message& message) {
   return ring_.CommitWrite();
 }
 
-bool SharedMemoryTransport::Receive(Message& message) {
+ReceiveResult SharedMemoryTransport::Receive(Message& message) {
   std::byte* slot = ring_.AcquireReadSlot();
   if (slot == nullptr) {
-    return false;
+    // kPeerClosed and kError fold into kEndOfStream until Controller exists
+    // (see AGENTS.md's v2 build order).
+    return ReceiveResult::kEndOfStream;
   }
 
   std::memcpy(&message.header, slot, sizeof(Header));
   if (message.header.payloadSize != payloadSize_) {
-    return false;
+    return ReceiveResult::kMalformed;
   }
   std::memcpy(message.payload.data(), slot + sizeof(Header), payloadSize_);
 
-  return ring_.CommitRead();
+  return ring_.CommitRead() ? ReceiveResult::kReceived : ReceiveResult::kEndOfStream;
 }
+
+void SharedMemoryTransport::Close() { ring_.Close(); }
 
 SharedMemoryTransport::SharedMemoryTransport(BlockingRingBuffer ring, std::size_t payloadSize)
     : ring_(std::move(ring)), payloadSize_(payloadSize) {}

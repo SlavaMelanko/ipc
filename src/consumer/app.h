@@ -10,9 +10,9 @@ class App {
   // Throws std::runtime_error if argv fails to parse.
   App(int argc, char** argv);
 
-  // Attaches to the producer's shared-memory segment. v1 assumes the
-  // producer already created it -- a single attempt, no retry/backoff.
-  // Returns false if attaching fails.
+  // Attaches to the producer's shared-memory segment and receives until
+  // EndOfStream, asserting the final count matches --count. Returns false if
+  // attaching fails, a defect is detected, or the count doesn't match.
   [[nodiscard]] bool Run() const;
 
  private:

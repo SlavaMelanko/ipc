@@ -71,6 +71,7 @@ bool App::Run() const {
     }
   }
 
+  transport->Close();
   std::println("producer: sent {} messages", count);
 
   return true;

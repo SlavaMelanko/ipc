@@ -60,6 +60,8 @@ bool RunProducer() {
     }
   }
 
+  transport->Close();
+
   return true;
 }
 
@@ -70,11 +72,16 @@ bool RunConsumer() {
 
   std::vector<std::byte> payload(kPayloadSize);
   std::uint64_t sessionId = 0;
-  for (std::uint64_t expectedSequenceNumber = 0; expectedSequenceNumber < kMessageCount;
-       ++expectedSequenceNumber) {
+  std::uint64_t expectedSequenceNumber = 0;
+
+  for (;;) {
     ipc::common::Message message{.header = {}, .payload = payload};
 
-    if (!transport->Receive(message)) {
+    auto result = transport->Receive(message);
+    if (result == ipc::common::ReceiveResult::kEndOfStream) {
+      break;
+    }
+    if (result != ipc::common::ReceiveResult::kReceived) {
       return false;
     }
     if (message.header.sequenceNumber != expectedSequenceNumber) {
@@ -92,9 +99,11 @@ bool RunConsumer() {
     if (ipc::common::ComputeChecksum(received, payload) != message.header.checksum) {
       return false;
     }
+
+    ++expectedSequenceNumber;
   }
 
-  return true;
+  return expectedSequenceNumber == kMessageCount;
 }
 
 }  // namespace
