@@ -2,6 +2,10 @@
 
 #include <sys/mman.h>
 
+#include <chrono>
+#include <cstdio>
+#include <print>
+#include <thread>
 #include <utility>
 
 #include "common/transport/control_block.h"
@@ -41,6 +45,34 @@ bool RefuseIfLive(const std::string& name) {
   shm_unlink(name.c_str());
 
   return false;
+}
+
+// Blocks until the segment reaches state == Ready, retrying indefinitely on
+// ENOENT (producer not up yet) or state != Ready (still initializing) --
+// neither is an error, since a consumer may legitimately start before its
+// producer. Returns false only on a genuine layoutVersion mismatch, which
+// is a hard failure, not something to retry past.
+bool WaitUntilReady(const std::string& name) {
+  bool loggedWaiting = false;
+
+  for (;;) {
+    auto existing = MappedSegment::Attach(name, sizeof(ControlBlock));
+    if (existing) {
+      auto* control = static_cast<ControlBlock*>(existing->data());
+      auto state = static_cast<LifecycleState>(control->state.load(std::memory_order_acquire));
+
+      if (state == LifecycleState::kReady) {
+        return control->layoutVersion == kWireFormatVersion;
+      }
+    }
+
+    if (!loggedWaiting) {
+      std::println(stderr, "consumer: waiting for producer to be ready");
+      loggedWaiting = true;
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
 }
 
 }  // namespace
@@ -89,6 +121,10 @@ std::optional<BlockingRingBuffer> BlockingRingBuffer::Attach(const std::string& 
                                                              std::size_t payloadSize) {
   std::size_t slotCount = SlotCount(ringCapacityBytes, payloadSize);
   if (slotCount == 0) {
+    return std::nullopt;
+  }
+
+  if (!WaitUntilReady(name)) {
     return std::nullopt;
   }
 
