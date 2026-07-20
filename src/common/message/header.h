@@ -8,18 +8,24 @@
 namespace ipc::common {
 
 struct Header {
-  // Doesn't provide ordering (the ring already guarantees that) — lets the
-  // consumer detect a gap or reorder as a bug, not routine data.
+  // Lets the consumer tell a producer restart apart from real loss.
+  std::uint64_t sessionId;
+  std::uint64_t timestamp;
+  // Ring already guarantees order; this only lets a gap be detected as a bug.
   std::uint64_t sequenceNumber;
   std::uint32_t payloadSize;
+  // Crc32() over the other fields + payload.
+  std::uint32_t checksum;
 };
 
-// Producer and consumer compile Header independently and copy it raw across
-// the shared-memory boundary, so both must agree on its exact byte layout.
+// Copied raw across the shared-memory boundary, so layout must be exact.
 static_assert(std::is_trivially_copyable_v<Header>);
-static_assert(sizeof(Header) == 16);
-static_assert(offsetof(Header, sequenceNumber) == 0);
-static_assert(offsetof(Header, payloadSize) == 8);
+static_assert(sizeof(Header) == 32);
+static_assert(offsetof(Header, sessionId) == 0);
+static_assert(offsetof(Header, timestamp) == 8);
+static_assert(offsetof(Header, sequenceNumber) == 16);
+static_assert(offsetof(Header, payloadSize) == 24);
+static_assert(offsetof(Header, checksum) == 28);
 
 }  // namespace ipc::common
 

@@ -13,8 +13,11 @@
 #include <thread>
 #include <vector>
 
+#include "common/message/checksum.h"
 #include "common/message/message.h"
 #include "common/transport/shared_memory_transport.h"
+#include "common/util/clock.h"
+#include "common/util/rand.h"
 
 namespace {
 
@@ -40,11 +43,17 @@ bool RunProducer() {
   assert(transport != nullptr);
 
   std::vector<std::byte> payload(kPayloadSize);
+  const auto sessionId = ipc::common::RandomNumber<std::uint64_t>();
+
   for (std::uint64_t sequenceNumber = 0; sequenceNumber < kMessageCount; ++sequenceNumber) {
-    ipc::common::Message message{
-        .header = {.sequenceNumber = sequenceNumber,
-                   .payloadSize = static_cast<std::uint32_t>(kPayloadSize)},
-        .payload = payload};
+    ipc::common::Header header{.sessionId = sessionId,
+                               .timestamp = ipc::common::CurrentTimestamp(),
+                               .sequenceNumber = sequenceNumber,
+                               .payloadSize = static_cast<std::uint32_t>(kPayloadSize),
+                               .checksum = 0};
+    header.checksum = ipc::common::ComputeChecksum(header, payload);
+
+    ipc::common::Message message{.header = header, .payload = payload};
 
     if (!transport->Send(message)) {
       return false;
@@ -60,6 +69,7 @@ bool RunConsumer() {
   assert(transport != nullptr);
 
   std::vector<std::byte> payload(kPayloadSize);
+  std::uint64_t sessionId = 0;
   for (std::uint64_t expectedSequenceNumber = 0; expectedSequenceNumber < kMessageCount;
        ++expectedSequenceNumber) {
     ipc::common::Message message{.header = {}, .payload = payload};
@@ -68,6 +78,18 @@ bool RunConsumer() {
       return false;
     }
     if (message.header.sequenceNumber != expectedSequenceNumber) {
+      return false;
+    }
+
+    if (expectedSequenceNumber == 0) {
+      sessionId = message.header.sessionId;
+    } else if (message.header.sessionId != sessionId) {
+      return false;
+    }
+
+    ipc::common::Header received = message.header;
+    received.checksum = 0;
+    if (ipc::common::ComputeChecksum(received, payload) != message.header.checksum) {
       return false;
     }
   }

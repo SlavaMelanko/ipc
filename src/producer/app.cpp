@@ -5,8 +5,11 @@
 #include <stdexcept>
 #include <vector>
 
+#include "common/message/checksum.h"
 #include "common/message/message.h"
 #include "common/transport/shared_memory_transport.h"
+#include "common/util/clock.h"
+#include "common/util/rand.h"
 #include "producer/config.h"
 
 namespace ipc::producer {
@@ -47,14 +50,19 @@ bool App::Run() const {
   }
 
   std::vector<std::byte> payloadBuffer(Config::payloadSize);
+  const auto sessionId = ipc::common::RandomNumber<std::uint64_t>();
 
   for (std::uint64_t sequenceNumber = 0; sequenceNumber < count; ++sequenceNumber) {
     FillPayload(payloadBuffer, sequenceNumber);
 
-    ipc::common::Message message{
-        .header = {.sequenceNumber = sequenceNumber,
-                   .payloadSize = static_cast<std::uint32_t>(Config::payloadSize)},
-        .payload = payloadBuffer};
+    ipc::common::Header header{.sessionId = sessionId,
+                               .timestamp = ipc::common::CurrentTimestamp(),
+                               .sequenceNumber = sequenceNumber,
+                               .payloadSize = static_cast<std::uint32_t>(Config::payloadSize),
+                               .checksum = 0};
+    header.checksum = ComputeChecksum(header, payloadBuffer);
+
+    ipc::common::Message message{.header = header, .payload = payloadBuffer};
 
     if (!transport->Send(message)) {
       std::println(stderr, "producer: send failed at sequenceNumber={}", sequenceNumber);
