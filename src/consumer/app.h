@@ -11,8 +11,10 @@ class App {
   App(int argc, char** argv);
 
   // Attaches to the producer's shared-memory segment and receives until
-  // EndOfStream, asserting the final count matches --count. Returns false if
-  // attaching fails, a defect is detected, or the count doesn't match.
+  // EndOfStream, validating each message via PacketValidator and asserting
+  // the final count matches --count. Returns false if attaching fails, a
+  // malformed frame is seen, the count doesn't match, or any defect was
+  // detected (PacketValidator::ErrorCount() != 0).
   [[nodiscard]] bool Run() const;
 
  private:

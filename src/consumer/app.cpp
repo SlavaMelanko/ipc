@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "common/message/message.h"
+#include "common/message/message_validator.h"
 #include "common/transport/shared_memory_transport.h"
 #include "consumer/config.h"
 
@@ -36,7 +37,8 @@ bool App::Run() const {
   }
 
   std::vector<std::byte> payloadBuffer(Config::payloadSize);
-  std::uint64_t expectedSequenceNumber = 0;
+  std::uint64_t receivedCount = 0;
+  ipc::common::MessageValidator validator;
 
   for (;;) {
     ipc::common::Message message{.header = {}, .payload = payloadBuffer};
@@ -46,30 +48,29 @@ bool App::Run() const {
       break;
     }
     if (result == ipc::common::ReceiveResult::kMalformed) {
-      std::println(stderr, "consumer: malformed frame at sequenceNumber={}",
-                   expectedSequenceNumber);
+      std::println(stderr, "consumer: malformed frame at receivedCount={}", receivedCount);
 
       return false;
     }
 
-    if (message.header.sequenceNumber != expectedSequenceNumber) {
-      std::println(stderr, "consumer: sequence gap, expected={} actual={}", expectedSequenceNumber,
-                   message.header.sequenceNumber);
-
-      return false;
-    }
-
-    ++expectedSequenceNumber;
+    validator.Validate(message);
+    ++receivedCount;
   }
 
-  if (expectedSequenceNumber != cmdArgs_.count) {
+  if (receivedCount != cmdArgs_.count) {
     std::println(stderr, "consumer: expected {} messages, received {}", cmdArgs_.count,
-                 expectedSequenceNumber);
+                 receivedCount);
 
     return false;
   }
 
-  std::println("consumer: received {} messages", expectedSequenceNumber);
+  if (validator.ErrorCount() != 0) {
+    std::println(stderr, "consumer: {} defect(s) detected", validator.ErrorCount());
+
+    return false;
+  }
+
+  std::println("consumer: received {} messages", receivedCount);
 
   return true;
 }

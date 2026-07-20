@@ -15,6 +15,7 @@ find_package(Threads REQUIRED)
 
 add_library(common_lib
   src/common/message/checksum.cpp
+  src/common/message/message_validator.cpp
   src/common/transport/blocking_ring_buffer.cpp
   src/common/transport/control_block.cpp
   src/common/transport/mapped_segment.cpp
