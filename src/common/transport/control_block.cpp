@@ -21,11 +21,10 @@ bool InitProcessSharedMutex(pthread_mutex_t& mutex) {
 
 namespace ipc::common {
 
-bool InitControlBlock(ControlBlock& control) {
-  control.producerPid = 0;
+bool InitControlBlock(ControlBlock& control, std::int32_t producerPid) {
+  control.producerPid = producerPid;
   control.state.store(static_cast<std::uint32_t>(LifecycleState::kInitializing),
                       std::memory_order_release);
-  control.layoutVersion = 0;
 
   if (!InitProcessSharedMutex(control.cursorMutex)) {
     return false;
@@ -35,6 +34,12 @@ bool InitControlBlock(ControlBlock& control) {
   control.readCursor = 0;
 
   return true;
+}
+
+void PublishReady(ControlBlock& control, std::uint32_t layoutVersion) {
+  control.layoutVersion = layoutVersion;
+  control.state.store(static_cast<std::uint32_t>(LifecycleState::kReady),
+                      std::memory_order_release);
 }
 
 }  // namespace ipc::common

@@ -22,6 +22,7 @@ add_library(common_lib
   src/common/transport/shared_memory_transport.cpp
   src/common/util/cli.cpp
   src/common/util/clock.cpp
+  src/common/util/process.cpp
 )
 target_include_directories(common_lib PUBLIC src)
 target_link_libraries(common_lib PUBLIC Threads::Threads)

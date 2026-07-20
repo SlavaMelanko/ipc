@@ -10,7 +10,11 @@
 namespace ipc::common {
 
 std::optional<NamedSemaphore> NamedSemaphore::Create(const std::string& name,
-                                                     unsigned int initialValue) {
+                                                     unsigned int initialValue, bool unlink) {
+  if (unlink) {
+    sem_unlink(name.c_str());
+  }
+
   sem_t* sem = sem_open(name.c_str(), O_CREAT | O_EXCL, kOwnerReadWrite, initialValue);
   if (sem == SEM_FAILED) {
     return std::nullopt;

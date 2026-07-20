@@ -9,6 +9,9 @@
 
 namespace ipc::common {
 
+// Bump by hand whenever Header's or ControlBlock's byte layout changes.
+inline constexpr std::uint32_t kWireFormatVersion = 1;
+
 // Width matches the atomic<uint32_t> it's stored in, not a plain enum class.
 enum class LifecycleState : std::uint32_t {  // NOLINT(performance-enum-size)
   kInitializing = 0,
@@ -34,7 +37,11 @@ struct ControlBlock {
 static_assert(std::is_trivially_copyable_v<ControlBlock>);
 static_assert(std::atomic<std::uint32_t>::is_always_lock_free);
 
-bool InitControlBlock(ControlBlock& control);
+// Writes producerPid before publishing state = Initializing.
+bool InitControlBlock(ControlBlock& control, std::int32_t producerPid);
+
+// Call once construction has fully succeeded.
+void PublishReady(ControlBlock& control, std::uint32_t layoutVersion);
 
 }  // namespace ipc::common
 

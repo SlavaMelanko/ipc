@@ -1,10 +1,13 @@
 #include "common/transport/blocking_ring_buffer.h"
 
+#include <sys/mman.h>
+
 #include <utility>
 
 #include "common/transport/control_block.h"
 #include "common/transport/ring_layout.h"
 #include "common/util/posix.h"
+#include "common/util/process.h"
 
 namespace ipc::common {
 
@@ -13,6 +16,30 @@ namespace {
 // Kept short: macOS caps semaphore names well under shm_open's 255 bytes.
 std::string FreeSlotsName(const std::string& name) { return name + "_free"; }
 std::string AvailableMessagesName(const std::string& name) { return name + "_avail"; }
+
+// True only if another producer is genuinely still running; otherwise
+// unlinks any stale segment left behind and returns false.
+bool RefuseIfLive(const std::string& name, std::size_t ringCapacityBytes) {
+  auto existing = MappedSegment::Attach(name, ringCapacityBytes);
+  if (!existing) {
+    return false;
+  }
+
+  auto* control = static_cast<ControlBlock*>(existing->data());
+  auto state = static_cast<LifecycleState>(control->state.load(std::memory_order_acquire));
+  std::int32_t producerPid = control->producerPid;
+
+  bool looksLive = state == LifecycleState::kInitializing || state == LifecycleState::kReady ||
+                   state == LifecycleState::kStopping;
+  if (looksLive && IsProcessAlive(producerPid)) {
+    return true;
+  }
+
+  existing.reset();
+  shm_unlink(name.c_str());
+
+  return false;
+}
 
 }  // namespace
 
@@ -24,26 +51,32 @@ std::optional<BlockingRingBuffer> BlockingRingBuffer::Create(const std::string& 
     return std::nullopt;
   }
 
+  if (RefuseIfLive(name, ringCapacityBytes)) {
+    return std::nullopt;
+  }
+
   auto segment = MappedSegment::Create(name, ringCapacityBytes);
   if (!segment) {
     return std::nullopt;
   }
 
   auto* control = static_cast<ControlBlock*>(segment->data());
-  if (!InitControlBlock(*control)) {
+  if (!InitControlBlock(*control, CurrentProcessId())) {
     return std::nullopt;
   }
 
-  auto freeSlots =
-      NamedSemaphore::Create(FreeSlotsName(name), static_cast<unsigned int>(slotCount));
+  auto freeSlots = NamedSemaphore::Create(FreeSlotsName(name), static_cast<unsigned int>(slotCount),
+                                          /*unlink=*/true);
   if (!freeSlots) {
     return std::nullopt;
   }
 
-  auto availableMessages = NamedSemaphore::Create(AvailableMessagesName(name), 0);
+  auto availableMessages = NamedSemaphore::Create(AvailableMessagesName(name), 0, /*unlink=*/true);
   if (!availableMessages) {
     return std::nullopt;
   }
+
+  PublishReady(*control, kWireFormatVersion);
 
   return BlockingRingBuffer(std::move(*segment), std::move(*freeSlots),
                             std::move(*availableMessages), payloadSize, slotCount);

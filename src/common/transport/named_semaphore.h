@@ -11,7 +11,10 @@ namespace ipc::common {
 // Owns one POSIX named semaphore; sem_unlink only if this side created it.
 class NamedSemaphore {
  public:
-  static std::optional<NamedSemaphore> Create(const std::string& name, unsigned int initialValue);
+  // unlink: true if the caller has already confirmed no live process owns
+  // an existing semaphore of this name (e.g. a crash left it behind).
+  static std::optional<NamedSemaphore> Create(const std::string& name, unsigned int initialValue,
+                                              bool unlink = false);
   static std::optional<NamedSemaphore> Attach(const std::string& name);
 
   NamedSemaphore(const NamedSemaphore&) = delete;
