@@ -12,6 +12,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 include(cmake/CompilerWarnings.cmake)
 
 find_package(Threads REQUIRED)
+find_package(ZLIB REQUIRED)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -37,7 +38,7 @@ add_library(common_lib
   src/common/util/process.cpp
 )
 target_include_directories(common_lib PUBLIC src)
-target_link_libraries(common_lib PUBLIC Threads::Threads CLI11::CLI11)
+target_link_libraries(common_lib PUBLIC Threads::Threads CLI11::CLI11 ZLIB::ZLIB)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   target_link_libraries(common_lib PUBLIC rt)
 endif()

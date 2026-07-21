@@ -102,3 +102,40 @@ pre-fix baseline exists at these sizes). Throughput growth flattens past
 share of per-message cost approaching its ceiling: beyond a certain
 payload size, fixed per-message overhead becomes negligible and
 throughput converges toward the CPU's raw slicing-by-8 CRC rate.
+
+## zlib CRC32
+
+Benchmarked our hand-rolled slicing-by-8 `Crc32Update` against zlib's
+`crc32()` in isolation — zlib was ~4-4.5x faster at every payload size
+tested, with output verified bit-identical (same IEEE 802.3 polynomial,
+same result on empty/small/large inputs and on the sequential
+header-then-payload two-call pattern `ComputeChecksum` actually uses).
+Swapped `checksum.cpp` to call zlib's `crc32()` directly and removed the
+hand-rolled byte-table and slicing-by-8 tables entirely
+(`find_package(ZLIB REQUIRED)` + `ZLIB::ZLIB` added to `CMakeLists.txt`).
+End-to-end test passes; wire format unchanged.
+
+- **Build**: `build-release` (`-O3 -DNDEBUG`).
+- **Command shape**: payload size increased and `--count` decreased
+  proportionally per run, so each run moves roughly the same total number
+  of bytes rather than the same message count:
+  ```bash
+  ./build-release/producer-cli --count <N> --payload-size <P> --ring-capacity 33554432 &
+  ./build-release/consumer-cli --count <N> --payload-size <P> --ring-capacity 33554432
+  ```
+
+| Payload | Count | Ring Capacity | Avg pkts/s | Avg throughput |
+|---|---|---|---|---|
+| 1 KB  | 4,000,000 | 32 MB | ~628,850 | ~643.9 MB/s |
+| 4 KB  | 3,000,000 | 32 MB | ~391,700 | ~1604.4 MB/s |
+| 8 KB  | 2,000,000 | 32 MB | ~211,470 | ~1732.4 MB/s |
+| 16 KB | 1,000,000 | 32 MB | ~111,110 | ~1820.4 MB/s |
+| 32 KB | 1,000,000 | 32 MB | ~56,540  | ~1852.7 MB/s |
+| 64 KB | 1,000,000 | 32 MB | ~28,820  | ~1889.0 MB/s |
+
+Compared to slicing-by-8 at matching payload sizes (1 KB and 16 KB
+overlap with the earlier table): **+42%** at 1 KB (~455.1 → ~643.9 MB/s)
+and **+95%** at 16 KB (~932.0 → ~1820.4 MB/s), crossing the 1 GB/s mark
+and approaching ~1.9 GB/s at larger payloads. Same flattening pattern as
+before — most of the gain over slicing-by-8 shows up once CRC dominates
+per-message cost, i.e. at larger payloads.
