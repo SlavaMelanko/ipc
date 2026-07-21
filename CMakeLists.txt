@@ -78,5 +78,9 @@ target_link_libraries(end_to_end_test PRIVATE common_lib)
 ipc_enable_warnings(end_to_end_test)
 add_test(NAME end_to_end COMMAND end_to_end_test)
 
+add_executable(atomic_visibility_test tests/atomic_visibility_test.cpp)
+ipc_enable_warnings(atomic_visibility_test)
+add_test(NAME atomic_visibility COMMAND atomic_visibility_test)
+
 include(cmake/CodeQuality.cmake)
 include(cmake/GitHooks.cmake)

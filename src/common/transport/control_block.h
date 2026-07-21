@@ -1,8 +1,6 @@
 #ifndef IPC_COMMON_TRANSPORT_CONTROL_BLOCK_H_
 #define IPC_COMMON_TRANSPORT_CONTROL_BLOCK_H_
 
-#include <pthread.h>
-
 #include <atomic>
 #include <cstdint>
 #include <type_traits>
@@ -20,22 +18,27 @@ enum class LifecycleState : std::uint32_t {  // NOLINT(performance-enum-size)
   kClosed = 3,
 };
 
-struct ControlBlock {
+// The padding here is deliberate cache-line separation between writeCursor
+// and readCursor, not an accidental field-ordering cost.
+struct ControlBlock {  // NOLINT(clang-analyzer-optin.performance.Padding)
   // Not mutex-guarded; readers acquire-load it directly.
   std::atomic<std::uint32_t> state;
   std::uint32_t layoutVersion;
   // Must be valid at or before the Initializing transition, not Ready.
   std::int32_t producerPid;
 
-  // Guards only the cursor increment; the slot copy itself needs no lock.
-  pthread_mutex_t cursorMutex;
-  std::uint64_t writeCursor;
-  std::uint64_t readCursor;
+  // Each on its own cache line: producer and consumer run on different
+  // cores in the common case, and adjacent hot atomics would false-share.
+  alignas(64) std::atomic<std::uint64_t> writeCursor;
+  alignas(64) std::atomic<std::uint64_t> readCursor;
 };
 
 // Placed raw in shared memory: must stay trivially copyable across platforms.
 static_assert(std::is_trivially_copyable_v<ControlBlock>);
 static_assert(std::atomic<std::uint32_t>::is_always_lock_free);
+// A non-lock-free atomic falls back to an internal, process-local lock that
+// coordinates nothing across processes sharing this memory.
+static_assert(std::atomic<std::uint64_t>::is_always_lock_free);
 
 // Reads and transitions ControlBlock::state, hiding the atomic cast and
 // memory ordering. Producer drives every transition; consumer only reads.
@@ -73,7 +76,7 @@ class StateManager {
 };
 
 // Writes producerPid before publishing state = Initializing.
-bool InitControlBlock(ControlBlock& control, std::int32_t producerPid);
+void InitControlBlock(ControlBlock& control, std::int32_t producerPid);
 
 }  // namespace ipc::common
 

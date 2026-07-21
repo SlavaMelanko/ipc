@@ -94,9 +94,7 @@ std::optional<BlockingRingBuffer> BlockingRingBuffer::Create(const std::string& 
   }
 
   auto* control = static_cast<ControlBlock*>(segment->data());
-  if (!InitControlBlock(*control, CurrentProcessId())) {
-    return std::nullopt;
-  }
+  InitControlBlock(*control, CurrentProcessId());
 
   auto freeSlots = NamedSemaphore::Create(FreeSlotsName(name), static_cast<unsigned int>(slotCount),
                                           /*unlink=*/true);
@@ -151,14 +149,7 @@ std::byte* BlockingRingBuffer::AcquireWriteSlot() {
     return nullptr;
   }
 
-  ControlBlock& control = Control();
-  if (Failed(pthread_mutex_lock(&control.cursorMutex))) {
-    return nullptr;
-  }
-  std::uint64_t writePos = control.writeCursor++;
-  if (Failed(pthread_mutex_unlock(&control.cursorMutex))) {
-    return nullptr;
-  }
+  std::uint64_t writePos = Control().writeCursor.fetch_add(1, std::memory_order_relaxed);
 
   return SlotAt(writePos);
 }
@@ -192,14 +183,7 @@ std::byte* BlockingRingBuffer::AcquireReadSlot() {
     }
   }
 
-  ControlBlock& control = Control();
-  if (Failed(pthread_mutex_lock(&control.cursorMutex))) {
-    return nullptr;
-  }
-  std::uint64_t readPos = control.readCursor++;
-  if (Failed(pthread_mutex_unlock(&control.cursorMutex))) {
-    return nullptr;
-  }
+  std::uint64_t readPos = Control().readCursor.fetch_add(1, std::memory_order_relaxed);
 
   return SlotAt(readPos);
 }
