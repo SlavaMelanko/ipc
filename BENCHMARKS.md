@@ -87,9 +87,18 @@ wire format).
 | 4 KB  | 32 MB | ~192,300 | ~787.6 MB/s | +59% |
 | 8 KB  | 32 MB | ~104,100 | ~852.5 MB/s | +70% |
 | 16 KB | 32 MB | ~56,900  | ~932.0 MB/s | +83% |
+| 32 KB | 32 MB | ~29,730  | ~974.1 MB/s | n/a (testing only, no pre-fix baseline) |
+| 64 KB | 32 MB | ~15,170  | ~994.0 MB/s | n/a (testing only, no pre-fix baseline) |
 
 Gain grows with payload size, as expected — CRC cost (and therefore the
 slicing speedup) scales with payload size, while fixed per-message costs
 (syscalls, semaphore wait/wake) don't. The ~130 MB/s Debug-mode plateau
 and the ~500 MB/s pre-fix Release plateau documented above no longer hold
 for payloads ≥ 4 KB in Release mode.
+
+32 KB and 64 KB were run for testing purposes only (no corresponding
+pre-fix baseline exists at these sizes). Throughput growth flattens past
+16 KB — 16→32 KB gained ~4.5%, 32→64 KB only ~2% — consistent with CRC's
+share of per-message cost approaching its ceiling: beyond a certain
+payload size, fixed per-message overhead becomes negligible and
+throughput converges toward the CPU's raw slicing-by-8 CRC rate.
