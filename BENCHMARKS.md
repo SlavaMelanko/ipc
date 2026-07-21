@@ -64,3 +64,32 @@ did not noticeably affect throughput in these runs.)
 - These are manual, single-machine runs, not a controlled benchmark suite
   — useful for relative comparison (Debug vs. Release, payload-size
   scaling), not for absolute capacity planning.
+
+## CRC32 slicing-by-8 fix
+
+Profiling `ComputeChecksum` (see `checksum.cpp`) isolated `Crc32Update` as
+the dominant per-message cost — ~93-96% of combined payload-generation +
+checksum time, byte-at-a-time table lookup with a loop-carried dependency
+that blocks instruction-level parallelism. Replaced with slicing-by-8:
+8 bytes folded into the CRC per iteration via 8 parallel table lookups
+instead of 8 sequential dependent ones. Verified bit-identical output to
+the original algorithm (end-to-end test passes; same polynomial, same
+wire format).
+
+- **Build**: `build-release` (`-O3 -DNDEBUG`), same as the Release results
+  above.
+- **Command shape**: identical to the Release section above,
+  `--count 4000000`, `--ring-capacity 33554432`.
+
+| Payload | Ring Capacity | Avg pkts/s | Avg throughput | vs. pre-fix Release |
+|---|---|---|---|---|
+| 1 KB  | 32 MB | ~444,400 | ~455.1 MB/s | +9%  |
+| 4 KB  | 32 MB | ~192,300 | ~787.6 MB/s | +59% |
+| 8 KB  | 32 MB | ~104,100 | ~852.5 MB/s | +70% |
+| 16 KB | 32 MB | ~56,900  | ~932.0 MB/s | +83% |
+
+Gain grows with payload size, as expected — CRC cost (and therefore the
+slicing speedup) scales with payload size, while fixed per-message costs
+(syscalls, semaphore wait/wake) don't. The ~130 MB/s Debug-mode plateau
+and the ~500 MB/s pre-fix Release plateau documented above no longer hold
+for payloads ≥ 4 KB in Release mode.
