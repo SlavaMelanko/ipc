@@ -13,7 +13,10 @@ namespace ipc::common {
 std::uint32_t Crc32(std::span<const std::byte> data);
 
 // Crc32() over header's sessionId/timestamp/sequenceNumber/payloadSize +
-// payload -- header.checksum itself is excluded from its own input.
+// payload -- header.checksum itself is excluded from its own input. Feeds
+// the two spans through the CRC in sequence rather than concatenating them
+// into one buffer first, since that buffer would otherwise be reallocated
+// and copied on every call.
 std::uint32_t ComputeChecksum(const Header& header, std::span<const std::byte> payload);
 
 }  // namespace ipc::common
