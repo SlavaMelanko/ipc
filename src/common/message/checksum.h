@@ -9,10 +9,8 @@
 
 namespace ipc::common {
 
-// CRC32 (IEEE 802.3 polynomial), computed over arbitrary byte ranges.
-std::uint32_t Crc32(std::span<const std::byte> data);
-
-// Crc32() over header's sessionId/timestamp/sequenceNumber/payloadSize +
+// CRC32 (IEEE 802.3 polynomial) over header's
+// sessionId/timestamp/sequenceNumber/payloadSize +
 // payload -- header.checksum itself is excluded from its own input. Feeds
 // the two spans through the CRC in sequence rather than concatenating them
 // into one buffer first, since that buffer would otherwise be reallocated
