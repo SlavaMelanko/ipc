@@ -139,3 +139,36 @@ and **+95%** at 16 KB (~932.0 → ~1820.4 MB/s), crossing the 1 GB/s mark
 and approaching ~1.9 GB/s at larger payloads. Same flattening pattern as
 before — most of the gain over slicing-by-8 shows up once CRC dominates
 per-message cost, i.e. at larger payloads.
+
+## Second machine: AMD Ryzen 7 7700X, Ubuntu
+
+Same zlib-CRC32 code as the section above, run on a second machine to see
+how much of the previous section's numbers are code vs. hardware.
+
+- **Machine**: AMD Ryzen 7 7700X (8-core/16-thread), Ubuntu 26.04 LTS
+  (Linux, x86_64)
+- **Build**: `build-release` (`-O3 -DNDEBUG`)
+- **Command shape**: fixed `--count` per payload size (not held to a
+  constant total byte count like the section above):
+  ```bash
+  ./build-release/producer-cli --count <N> --payload-size <P> --ring-capacity 33554432 &
+  ./build-release/consumer-cli --count <N> --payload-size <P> --ring-capacity 33554432
+  ```
+
+| Payload | Count | Ring Capacity | Avg pkts/s | Avg throughput |
+|---|---|---|---|---|
+| 1 KB  | 10,000,000 | 32 MB | ~1,307,167 | ~1.38 GB/s |
+| 4 KB  | 5,000,000  | 32 MB | ~543,666   | ~2.24 GB/s |
+| 8 KB  | 2,500,000  | 32 MB | ~337,644   | ~2.78 GB/s |
+| 16 KB | 1,000,000  | 32 MB | ~195,357   | ~3.21 GB/s |
+| 32 KB | 1,000,000  | 32 MB | ~101,928   | ~3.34 GB/s |
+| 64 KB | 1,000,000  | 32 MB | ~53,456    | ~3.51 GB/s |
+
+Same code, same 32 MB ring, same plateau-with-payload-size shape as the
+Apple M4 numbers above — but consistently faster on this machine: **~2.1x**
+at 1 KB (0.644 → 1.38 GB/s), **~1.4x** at 4 KB, **~1.6x** at 8 KB, and
+**~1.76–1.9x** at 16/32/64 KB. Attributed to hardware (faster CPU/memory
+subsystem), not a code difference — both runs are on the same zlib-CRC32
+build. As with the rest of this document, these are informal single-machine
+numbers, useful for relative (cross-machine, cross-payload-size) comparison
+only.
