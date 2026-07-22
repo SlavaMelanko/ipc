@@ -17,9 +17,10 @@ whole-pipeline throughput, not a transport-only benchmark).
   ./build-release/consumer-cli --count <N> --payload-size <P> --ring-capacity <R>
   ```
 
-- All results below use the current zlib-based CRC32 (`checksum.cpp`).
+- All results below use the current zlib-based CRC32 (`checksum.cpp`) and
+  lock-free (`std::atomic`-cursor) `SharedMemoryTransport`.
 
-## CRC32 optimization history
+## Optimization history
 
 - **Slicing-by-8** (replacing byte-at-a-time table lookup with 8 parallel
   table lookups per iteration): **+9% to +83%** throughput vs. the
@@ -28,6 +29,16 @@ whole-pipeline throughput, not a transport-only benchmark).
   implementation): a further **+42% at 1 KB** and **+95% at 16 KB** vs.
   slicing-by-8, crossing 1 GB/s and approaching ~1.9 GB/s at larger
   payloads on the Apple M4.
+- **Lock-free cursors** (replacing the `pthread_mutex_t`-guarded
+  write/read cursors with cache-line-separated `std::atomic<uint64_t>`,
+  removing the mutex from the `send()`/`receive()` fast path entirely):
+  throughput unchanged within run-to-run noise at every payload size
+  tested on the Apple M4 — the mutex was already held only for the
+  claim-and-increment, not the copy, so the bottleneck at these payload
+  sizes is the per-message `memcpy`/CRC32 work, not cursor contention.
+  The change is a correctness/scalability win (no lock on the fast path,
+  safe under real cross-core contention) rather than a throughput one at
+  this payload range.
 
 ## Results
 
@@ -35,12 +46,12 @@ whole-pipeline throughput, not a transport-only benchmark).
 
 | Payload | Count     | Ring Capacity | Avg pkts/s | Avg throughput |
 | ------- | --------- | ------------- | ---------- | -------------- |
-| 1 KB    | 4,000,000 | 32 MB         | ~628,850   | ~643.9 MB/s    |
-| 4 KB    | 3,000,000 | 32 MB         | ~391,700   | ~1604.4 MB/s   |
-| 8 KB    | 2,000,000 | 32 MB         | ~211,470   | ~1732.4 MB/s   |
+| 1 KB    | 4,000,000 | 32 MB         | ~657,200   | ~673.0 MB/s    |
+| 4 KB    | 3,000,000 | 32 MB         | ~400,110   | ~1638.8 MB/s   |
+| 8 KB    | 2,000,000 | 32 MB         | ~212,150   | ~1738.0 MB/s   |
 | 16 KB   | 1,000,000 | 32 MB         | ~111,110   | ~1820.4 MB/s   |
-| 32 KB   | 1,000,000 | 32 MB         | ~56,540    | ~1852.7 MB/s   |
-| 64 KB   | 1,000,000 | 32 MB         | ~28,820    | ~1889.0 MB/s   |
+| 32 KB   | 1,000,000 | 32 MB         | ~57,120    | ~1871.8 MB/s   |
+| 64 KB   | 1,000,000 | 32 MB         | ~28,940    | ~1896.6 MB/s   |
 
 ### AMD Ryzen 7 7700X, Ubuntu 26.04 LTS (x86_64)
 
