@@ -147,11 +147,10 @@ being presented as v1's immediate scope:
   per-message fast path (locked only at the full/empty boundary), and add
   the bounded `sem_timedwait` wait. No producer- or consumer-visible API
   change from v2 — v3 optimizes what's already inside
-  `SharedMemoryTransport`. Unlike an earlier condvar-based draft of this
-  design, the semaphore-based signal in v1/v2 cannot lose a notification in
-  the first place (see "Two distinct sync mechanisms" and "v3: lock-free
-  fast path" below) — v3 has no missed-notification recovery to build,
-  only the cursor/atomics work itself.
+  `SharedMemoryTransport`. The semaphore-based signal in v1/v2 cannot lose
+  a notification in the first place (see "Two distinct sync mechanisms" and
+  "v3: lock-free fast path" below) — v3 has no missed-notification recovery
+  to build, only the cursor/atomics work itself.
 
 Part I below is written as the **durable architectural reference** — the
 full, final design, with each subsection labeled by the iteration that
@@ -235,16 +234,12 @@ and the alternatives it was weighed against:
   semaphore each for `freeSlots` (initialized to `N`, the slot count) and
   `availableMessages` (initialized to `0`) — the standard bounded-buffer
   pattern, modeling exactly the two conditions this ring needs (see
-  "Shared-memory ring layout" below). An earlier version of this document
-  rejected semaphores on the claim that "a plain counter can't express two
-  independent wait conditions" — that claim was wrong and is retracted; two
-  semaphores express it directly, one per condition. A further earlier
-  version of this document, after retracting that claim, still chose
-  process-shared pthread mutex + condvar anyway "mainly for symmetry with the
-  in-process `Controller`'s API shape" — that choice is now also superseded:
-  semaphores are what's actually implemented, and the reasons below are why.
-  Two properties make them the better fit specifically for this
-  cross-process case:
+  "Shared-memory ring layout" below). Two semaphores express the two
+  independent wait conditions directly, one per condition — no single
+  counter or predicate has to serve both. Two properties make semaphores
+  the better fit specifically for this cross-process case (over a
+  process-shared pthread mutex + condvar, which would otherwise be a
+  reasonable choice for API symmetry with the in-process `Controller`):
   - **No mutex-owner-death exposure.** A semaphore has no "owner" to die
     mid-hold — `sem_post`/`sem_wait` don't lock anything a crashing process
     could leave wedged. This sidesteps the entire non-robust-mutex problem
@@ -272,14 +267,12 @@ and the alternatives it was weighed against:
     `ControlBlock` — see "Shared-memory ring layout" and "Ownership by
     resource" below for what that means for naming and lifecycle.
 - **Process-shared pthread mutex + condvar (considered, not chosen for
-  cross-process blocking).** This is what an earlier version of this
-  document specified for the ring's "slot free"/"message available" signals
-  — verified working (`PTHREAD_PROCESS_SHARED` does function correctly on
-  this project's target platforms, see "Cross-platform verification" below)
-  but superseded by named semaphores for the reasons above. A
-  process-shared `pthread_mutex_t` is still used in v1 — narrowly, to guard
-  only the cursor read-and-increment (see "Cursor synchronization model"
-  below), never to gate blocking itself.
+  cross-process blocking).** `PTHREAD_PROCESS_SHARED` does function
+  correctly on this project's target platforms (see "Cross-platform
+  verification" below), but named semaphores are chosen instead for the
+  reasons above. A process-shared `pthread_mutex_t` is still used in v1 —
+  narrowly, to guard only the cursor read-and-increment (see "Cursor
+  synchronization model" below), never to gate blocking itself.
 - Linux `futex` directly: explicitly **rejected** — Linux-only, and this
   project's initial target is POSIX/macOS-first (per this document). If
   ever needed, it would sit behind a platform adapter, not appear in shared
@@ -365,27 +358,23 @@ requirement itself; `is_lock_free()` would only tell you about one already-
 constructed object, checked too late and too narrowly for a property the
 whole design depends on universally.
 
-**Why the `static_assert` alone is accepted as sufficient — no separate
-runtime cross-process test.** The `static_assert` catches "does this type
-use a lock internally," which is distinct in principle from the more
-specific cross-process question — "does a release-store in one process's
-mapping become visible, via an acquire-load, in a *different* process's
-mapping of the same physical pages." Standard `std::atomic` is specified in
-terms of the C++ memory model, which is defined over a single program's
-threads; nothing in the standard explicitly extends its guarantees across
-process boundaries. An earlier version of this document treated that gap
-as requiring its own `fork()`-based release-store/acquire-load runtime
-smoke test, alongside the `PTHREAD_PROCESS_SHARED` smoke test. That runtime
-test was built, then deliberately removed (see "Cross-process atomic
-visibility" in "Testing strategy" below): a lock-free atomic is, in
-practice, implemented as a plain CPU load/store/RMW instruction with no
-process-local state, and that implementation works across shared physical
-pages on every mainstream platform this project targets — unlike
-`PTHREAD_PROCESS_SHARED`, which has a documented history of being
-unsupported or stubbed on a real target platform (see "Cross-platform
-verification" above, macOS's `sem_init()`), there is no comparable platform
-risk here to justify the added CI surface. `is_always_lock_free` is treated
-as sufficient on its own.
+**Why the `static_assert` alone is sufficient — no runtime cross-process
+test.** The `static_assert` catches "does this type use a lock
+internally," which is distinct in principle from the more specific
+cross-process question — "does a release-store in one process's mapping
+become visible, via an acquire-load, in a *different* process's mapping of
+the same physical pages." Standard `std::atomic` is specified in terms of
+the C++ memory model, defined over a single program's threads; nothing in
+the standard explicitly extends its guarantees across process boundaries.
+In practice, though, a lock-free atomic is implemented as a plain CPU
+load/store/RMW instruction with no process-local state, and that
+implementation works across shared physical pages on every mainstream
+platform this project targets — unlike `PTHREAD_PROCESS_SHARED`, which has
+a documented history of being unsupported or stubbed on a real target
+platform (see "Cross-platform verification" above, macOS's `sem_init()`),
+there is no comparable platform risk here to justify a `fork()`-based
+runtime smoke test (see "Cross-process atomic visibility" in "Testing
+strategy" below). `is_always_lock_free` is sufficient on its own.
 
 #### Pause semantics (cross-process) — **[v1]**
 
@@ -535,12 +524,9 @@ producer and consumer can ever touch the same slot concurrently.
 
 **v1 baseline — semaphores block, a mutex only guards the cursor claim:**
 
-An earlier version of this document specified a single process-shared
-mutex held across the *entire* `send()`/`receive()` call, with two
-condition variables for blocking — "v1's `send()`/`receive()` take the
-mutex on every call, not only at the full/empty boundary." That is
-**not** what v1 actually does; it's superseded by the semaphore-based
-design below, which narrows the mutex's job considerably:
+v1's `send()`/`receive()` never hold a mutex across the whole call — only
+at the full/empty boundary, per the semaphore-based design below, which
+keeps the mutex's job narrow:
 
 - **Cursors are ordinary `uint64_t`, not atomics.** Each cursor (write
   cursor, read cursor) lives in the control block as a plain integer. There
@@ -575,11 +561,10 @@ design below, which narrows the mutex's job considerably:
   `send()` calls `sem_wait(freeSlots)`, locks `cursorMutex`, does
   `writePos = writeCursor++`, unlocks, copies into slot `writePos`
   unlocked, then `sem_post(availableMessages)`. `receive()` is symmetric
-  on `availableMessages`/`readCursor`/`freeSlots`. This is a real,
-  deliberate behavior difference from the superseded single-mutex design
-  above: the mutex here is held for a handful of instructions, never for
-  the duration of a copy, and never gates whether a call blocks at all —
-  that's the semaphores' job entirely.
+  on `availableMessages`/`readCursor`/`freeSlots`. The mutex here is held
+  for a handful of instructions, never for the duration of a copy, and
+  never gates whether a call blocks at all — that's the semaphores' job
+  entirely.
 - **v1 has no lost-wakeup risk — and not because of a mutex-guarded
   predicate pattern.** A semaphore's `sem_post` is unconditional and
   cumulative: a post that arrives before its matching `sem_wait` is still
@@ -588,8 +573,7 @@ design below, which narrows the mutex's job considerably:
   current waiter would be lost. This guarantee holds regardless of
   whether the cursor claim is mutex-protected (v1/v2) or lock-free (v3) —
   see "v3: lock-free fast path" below for why this means v3 doesn't need
-  to accept or recover from a missed notification at all, unlike an
-  earlier condvar-based draft of this design.
+  to accept or recover from a missed notification at all.
 - **Blocking only at full/empty** — producer blocks only when the ring is
   full (all `N` slots occupied); consumer blocks only when the ring is empty
   (write cursor caught up to read cursor). No busy-waiting: waits are
@@ -651,21 +635,19 @@ This subsection describes the v3 upgrade over the v1 baseline above; it is
   claimable once `sem_wait` returns for it — is what prevents concurrent
   access at every iteration, mutex or atomics alike.)
 - **No missed-notification problem to accept, because semaphores don't have
-  one.** An earlier version of this document assumed condition variables
-  for cross-process signaling and, on that assumption, correctly identified
-  a real gap: a condvar signal sent by a notifier that isn't also holding
-  the mutex across its state change can land in a window where no one is
-  currently waiting, and is then lost — the classic mutex-guarded-predicate
-  no-lost-wakeup guarantee only holds when the notifier holds the mutex
-  too, which a lock-free fast path (deliberately) doesn't do. That
-  analysis no longer applies here, because this design was never
-  condvar-based to begin with (see "Two distinct sync mechanisms" above):
-  `sem_post`'s effect on a semaphore's count is unconditional and
-  cumulative, with no notifier-side mutex involved at any iteration, so
-  there is no window in which a post can land where no one is waiting and
-  be lost. This holds at v1, v2, and v3 alike, including once the cursor
-  claim itself goes lock-free in v3 below — going lock-free changes who
-  holds `cursorMutex` and for how long, but never touches the
+  one.** A classic condition-variable design risks a lost wakeup: a signal
+  sent by a notifier that isn't also holding the mutex across its state
+  change can land in a window where no one is currently waiting, and is
+  then lost — the mutex-guarded-predicate no-lost-wakeup guarantee only
+  holds when the notifier holds the mutex too, which a lock-free fast path
+  (deliberately) doesn't do. That risk doesn't apply here, because this
+  design is semaphore-based, not condvar-based (see "Two distinct sync
+  mechanisms" above): `sem_post`'s effect on a semaphore's count is
+  unconditional and cumulative, with no notifier-side mutex involved at any
+  iteration, so there is no window in which a post can land where no one is
+  waiting and be lost. This holds at v1, v2, and v3 alike, including once
+  the cursor claim itself goes lock-free in v3 below — going lock-free
+  changes who holds `cursorMutex` and for how long, but never touches the
   `freeSlots`/`availableMessages` semaphores' own guarantee, since that
   guarantee never depended on the mutex in the first place. There is
   consequently no "accept the miss, let a bounded wait recover" tradeoff to
@@ -694,103 +676,48 @@ producer, simply stays blocked — this is accepted v1 scope (see "v1 error
 handling" below): v1's fail-fast posture is about *malformed data*, not
 about *peer liveness*, which is a v2 concern.
 
-**From v2 onward**, this is no longer acceptable — v2 adds interactive
-pause/resume/quit and needs to wake blocked calls on both a local stop
-request and (best-effort) a dead peer:
-
-A blind `sem_wait` only wakes on its one condition (slot-free /
-message-available). It has no way to observe "local shutdown was requested"
-or "the peer process died" — both are real deadlock risks once interactive
-control exists, not edge cases. **This mechanism is asymmetric by design**:
-only the producer's PID and lifecycle state are stored in the segment (see
-"Lifecycle and ownership" below), so only the *consumer* can detect a dead
-or quit *producer* this way. The reverse — producer detecting a dead or quit
-consumer — is out of scope even in v2; see "Crash recovery scope" below for
-why, and the `SendResult` note beneath the enum definition for what this
-means for `send()`'s return value.
-
-- **Local shutdown while blocked**: producer's `send()` is waiting because
-  the ring is full; user presses `q` / sends `SIGINT`. `Controller` flips to
-  `Stopped`, but that's the *in-process* condition variable (see "Two
-  distinct sync mechanisms" above) — nothing wakes the thread blocked on the
-  *ring's* cross-process `freeSlots` semaphore. `send()` needs its own
-  bounded-wait check for this (below), just like `receive()` does.
-- **Peer death while blocked**: consumer's `receive()` is waiting for
-  "message available"; producer crashes. A crash runs no cleanup —
-  `sem_post` never fires again. Consumer blocks forever without the check
-  below.
+**From v2 onward**, blocked calls must wake on a local stop request and
+(best-effort) a dead peer, not just the predicate. Detection is
+**asymmetric by design**: only the producer's PID/lifecycle state lives in
+the segment (see "Lifecycle and ownership" below), so only the *consumer*
+can detect a dead/quit *producer* this way — the reverse is out of scope
+(see "Crash recovery scope" below).
 
 **Fix: bounded wait, not blind wait — [v2].** `send()`/`receive()` use
-`sem_timedwait` on a short bound (e.g. 100–200 ms), not a blind `sem_wait`.
-`sem_timedwait` takes an **absolute** deadline (against `CLOCK_REALTIME`),
-not a relative duration, so each retry recomputes `now() + bound` before
-calling it again. On every wake — whether the semaphore was posted, the
-timeout elapsed, or (per POSIX) an `EINTR` interruption occurred — check,
-in order:
+`sem_timedwait` on a short absolute-deadline bound (e.g. 100–200 ms,
+recomputed each retry against `CLOCK_REALTIME`), not a blind `sem_wait`. On
+every wake, check in order:
 
 1. Predicate met (slot free / message available)? → proceed, done.
-2. **`receive()` only:** ring still empty (predicate not met) **and**
-   segment `state` is `Stopping` or `Closed`? → return an `EndOfStream`
-   result, stop waiting. See "Clean producer shutdown and the receive
-   predicate" below — this is a distinct, expected outcome of a producer
-   finishing normally, not an error, and is checked *before* the local-
-   `Stopped` and `PeerClosed` checks below because it's the more specific,
-   more informative condition when it applies (the producer isn't dead or
-   locally told to stop — it published a graceful end).
-3. Local `Controller` state is `Stopped`? → return a `Stopped` result,
-   stop waiting.
-4. **`receive()` only:** producer's PID (stored in the segment — see
-   "Lifecycle and ownership" below) no longer alive (`kill(pid, 0)` fails
-   with `ESRCH`)? → return a `PeerClosed` result, stop waiting. `send()`
-   has no equivalent check — there is no stored consumer PID for it to test
-   (see "Crash recovery scope" below) — so this step is skipped entirely
-   on the producer side.
-5. None of the above → recompute the deadline, wait again.
+2. **`receive()` only:** ring empty **and** `state` is `Stopping`/`Closed`?
+   → `EndOfStream` (a producer finishing normally, not an error — see
+   "Clean producer shutdown and the receive predicate" below). Checked
+   first since it's the most specific condition.
+3. Local `Controller` state `Stopped`? → `Stopped`.
+4. **`receive()` only:** producer PID no longer alive (`kill(pid, 0)` →
+   `ESRCH`)? → `PeerClosed`. No equivalent on `send()`'s side — no stored
+   consumer PID to test (see "Crash recovery scope" below).
+5. Otherwise recompute the deadline, wait again.
 
-This reuses the PID-liveness check already designed for lifecycle/crash
-recovery, just invoked periodically during a blocked wait instead of only at
-process startup, on the consumer side only. Worst-case wake latency on
-consumer-observed producer shutdown or crash is bounded by the wait
-granularity (~100–200 ms) — **and, unlike a condvar-based design, this
-bound genuinely holds for the wait itself in every crash shape** (see
-below for the one narrower exposure that remains). A blocked `send()` has
-no equivalent bound on peer death: it wakes on `Stopped` (its own
-`Controller`) but not on a dead consumer, clean-quit or crashed alike.
+This reuses the PID-liveness check from lifecycle/crash recovery,
+consumer-side only, bounding wake latency to the wait granularity. A
+blocked `send()` has no equivalent bound on peer death — it wakes on its
+own `Controller`'s `Stopped`, never on consumer absence.
 
-**Why `PeerClosed` is still only best-effort, and where the remaining gap
-actually is.** An earlier version of this document argued `PeerClosed`
-detection could be blocked entirely because `pthread_cond_timedwait`
-re-acquires its mutex internally before returning, so a producer that died
-holding that mutex would wedge the consumer's wait call itself, before it
-ever reached the PID-liveness check. That specific failure mode **does not
-apply to `sem_timedwait`**: POSIX semaphores have no associated mutex and
-no "owner" — `sem_timedwait` returning (on timeout or on a post) never
-requires re-acquiring anything, so step 4 above is reached after every
-wake, unconditionally, regardless of how the producer died. The bound is
-real and unconditional at the semaphore-wait level.
+**Why `PeerClosed` is still only best-effort.** Detection itself is
+unconditional — POSIX semaphores have no owner/mutex to wedge on, unlike
+`pthread_cond_timedwait`, so step 4 always runs after every wake. What
+remains best-effort is the *subsequent* cursor claim: if the producer died
+holding `cursorMutex` (a window of only a few instructions around
+`writeCursor++`), the consumer's claim attempt blocks independent of the
+`PeerClosed` check having already succeeded. Full closure needs either
+`PTHREAD_MUTEX_ROBUST` or moving the cursor claim off a mutex entirely
+(v3's atomics work removes it — see "v3: lock-free fast path" above); not
+implemented through v2.
 
-The gap that remains is narrower and lives elsewhere: after `sem_timedwait`
-returns and the predicate check (step 1) says a slot might be available,
-the consumer still needs `ControlBlock::cursorMutex` to claim its cursor
-value (see "Cursor synchronization model" above). If the producer died
-while holding `cursorMutex` — a window of only a handful of instructions
-around `writeCursor++`, not the whole `send()` call — the consumer's
-attempt to lock it there would block, independent of and after the
-`PeerClosed` check has already run. So `PeerClosed` detection itself is
-now unconditional; what remains best-effort is whether the *subsequent*
-cursor claim can complete, which depends on the same non-robust-mutex
-exposure described in "Crash recovery scope" below, just confined to a far
-smaller critical section than a whole-call mutex would have been. Full
-closure of that narrower gap still needs either `PTHREAD_MUTEX_ROBUST`
-(`EOWNERDEAD` handling on relock) or moving the cursor claim off a mutex
-entirely (which is exactly v3's atomics work) — not implemented at any
-planned iteration through v2; v3 removes the exposure by removing the
-mutex from this path altogether (see "v3: lock-free fast path" above).
-
-This is also why, from v2 onward, `ITransport::send()`/`receive()` return a
-small result enum, not a plain `bool` — but the two enums are **not
-symmetric**, reflecting the asymmetric check above. **v1 uses plain `bool`**
-(see "v1 error handling" below); the enum shape below is a v2 addition:
+This is why, from v2 onward, `ITransport::send()`/`receive()` return a
+small result enum instead of `bool` (**v1 uses plain `bool`** — see "v1
+error handling" below) — **the two enums are not symmetric**:
 
 ```cpp
 // v2
@@ -798,35 +725,17 @@ enum class SendResult { Sent, Stopped };
 enum class ReceiveResult { Received, Stopped, PeerClosed, Malformed, EndOfStream };
 ```
 
-`Sent`/`Received` mean the predicate was met and the operation completed
-normally; `Stopped` means the local `Controller` transitioned to `Stopped`
-while waiting; `PeerClosed` (receive-side only, **best-effort** only in the
-narrower sense described above — the PID-liveness check itself always runs
-after a wake, but the subsequent cursor claim can still block on a producer
-that died mid-increment) means the producer's PID liveness check failed
-while waiting. `Malformed`
-(receive-side only) means the slot's `header.payloadSize` did not equal the
-configured exact payload size — see "Malformed-frame policy" in
-"Shared-memory ring layout" above for the full rationale; it is called out
-here only to keep the enum definition and its cases in one place.
-`EndOfStream` (receive-side only) means the ring was empty and the segment's
-lifecycle `state` was `Stopping` or `Closed` — the producer finished
-normally and there is nothing left to drain — see "Clean producer shutdown
-and the receive predicate" in "Lifecycle and ownership" below. Unlike
-`PeerClosed`, `EndOfStream` is not a failure or a best-effort detection: it
-is the expected, designed-for outcome of a consumer draining a producer
-that exited cleanly. `send()` has no `PeerClosed` case: a producer blocked
-on a full ring, with the consumer already dead or cleanly exited, wakes
-only on its own `Controller` state — not automatically on consumer absence.
-This is a real limitation at every iteration (see "Crash recovery scope"
-below), not an oversight papered over by the enum shape. Both enums are
-returned by value, fixed underlying `int`, no allocation — consistent with
-the fixed-size, no-heap-per-call constraints the rest of the transport
-already holds itself to. Neither enum covers OS-level failures
-(`shm_open`/`sem_open`/`mmap` errors, an unexpected `sem_timedwait` errno)
-or the `Malformed` case's escalation to process exit — see "Fatal-error
-policy" below for how those are handled instead of being folded into these
-two blocking-outcome enums.
+`Sent`/`Received`: predicate met, completed normally. `Stopped`: local
+`Controller` reached `Stopped` while waiting. `PeerClosed` (receive-only,
+best-effort per above): producer PID check failed. `Malformed`
+(receive-only): `header.payloadSize` mismatch — see "Malformed-frame
+policy" above. `EndOfStream` (receive-only): ring empty and `state` was
+`Stopping`/`Closed` — expected, not a failure, see "Clean producer
+shutdown" below. `send()` has no `PeerClosed` case at any iteration — a
+real limitation, see "Crash recovery scope" below. Both enums: returned by
+value, fixed underlying `int`, no allocation. Neither covers OS-level
+failures or the `Malformed` case's escalation to process exit — see
+"Fatal-error policy" below.
 
 ##### Fatal-error policy
 
@@ -841,72 +750,36 @@ richer policy below is what v2 replaces it with, once there's an actual
 need (interactive control, best-effort peer detection, malformed-frame
 recovery) to distinguish more than "worked" / "didn't."
 
-**From v2 onward:** `SendResult`/`ReceiveResult` exist to describe
-**blocking-wait outcomes** — what happened while a call was waiting on a
-condition — not the full space of things that can go wrong in the
-transport. Two other categories of failure exist and need a stated policy,
-or the two enums above quietly read as covering more than they do:
+**From v2 onward:** `SendResult`/`ReceiveResult` describe blocking-wait
+outcomes only, not the full space of transport failures. Two other
+categories need a stated policy:
 
-- **OS-level failures**: `shm_open`/`mmap`/`ftruncate`/`sem_open` returning
-  an error, `pthread_mutex_init` failing (e.g. the platform silently not
-  supporting `PTHREAD_PROCESS_SHARED` despite the check in "Cross-platform
-  verification" above), or `sem_timedwait` returning an errno other than
-  `ETIMEDOUT` (a genuine EINVAL-class misuse, not a normal wake path).
-  These are **programmer or environment errors**, not conditions a caller
-  should be expected to branch on and recover from at the call site.
+- **OS-level failures**: `shm_open`/`mmap`/`ftruncate`/`sem_open` errors,
+  `pthread_mutex_init` failing, `sem_timedwait` returning anything but
+  `ETIMEDOUT`. Programmer/environment errors, not conditions a caller
+  should branch on and recover from.
 - **Protocol failures**: `layoutVersion` mismatch at attach (see "Lifecycle
-  and ownership" below) and the mismatched-`payloadSize` `Malformed` case
-  above. These indicate the two processes disagree about the wire format or
-  the ring is corrupted — not something the running process can safely
-  paper over and continue.
+  and ownership" below), the mismatched-`payloadSize` `Malformed` case
+  above. The two processes disagree about wire format or the ring is
+  corrupted — not safe to paper over.
 
-**Policy from v2 onward: both categories are fatal — log clearly, then exit
-non-zero — but the transport itself never calls `exit()`/`abort()`/
-`std::terminate()`, and the split between "detect" and "act on" is
-explicit:**
-
-- **`SharedMemoryTransport` (and any other `ITransport` implementation)
-  reports failure through an ordinary return value, never by unilaterally
-  ending the process.** OS-level failures during construction/attach (a
-  constructor that can't succeed, or an explicit `open()`/`attach()`-style
-  factory returning failure) and protocol failures like `layoutVersion`
-  mismatch are surfaced as a simple result the caller inspects — e.g. a
-  `std::expected<SharedMemoryTransport, TransportError>`-shaped construction
-  path, or an explicit `enum class TransportError { OsFailure,
-  LayoutMismatch }` alongside a logged detail string — not as a thrown
-  exception (consistent with "no exceptions thrown across the `ITransport`
-  boundary" below) and never as a direct `exit()` call from inside transport
-  code. This keeps the transport unit-testable in isolation: a test can
-  construct a transport against a deliberately-broken segment and assert on
-  the returned error, without that assertion requiring a subprocess to
-  observe an `exit()` call that already tore down the process under test.
-  This same "the transport reports a value, never exits itself" principle
-  applies in v1 too, even with only a `bool` to report it — v1's `false`
-  return is the same detect/act-on split, just with a coarser signal.
-- **`ProducerApp`/`ConsumerApp` own logging and the final non-zero exit, at
-  every iteration.** These are the orchestration layer — the thing
-  `producer_main.cpp`/`consumer_main.cpp` actually construct and run — and
-  are where "log clearly, then exit non-zero" actually happens: they call
-  into the transport, inspect the result, and on failure log the detail and
-  return a non-zero status from `main()` (or call `std::exit` themselves, at
-  the top of the call stack, not buried inside infrastructure code). Same
-  split applies to the `Malformed` `ReceiveResult` case above (v2):
-  `receive()` returns `Malformed` (a value, not a thrown error and not a
-  process exit), and it is `ConsumerApp`'s consumer loop — not
-  `SharedMemoryTransport` — that logs it and exits non-zero.
-- **The exact error type can stay simple** — this is not a request for a
-  rich exception hierarchy or an `std::error_code`-style extensible
-  registry. A small enum plus a logged string is enough to preserve the
-  detect/act-on split; the split itself is the requirement, not the
-  sophistication of the error type carrying it.
+**Policy: both categories are fatal — log clearly, exit non-zero — but the
+transport itself never calls `exit()`/`abort()`/`std::terminate()`.**
+`SharedMemoryTransport` reports failure through an ordinary return value
+(e.g. `std::expected<SharedMemoryTransport, TransportError>` at
+construction, or `enum class TransportError { OsFailure, LayoutMismatch }`
+plus a logged detail string) — never a thrown exception, never a direct
+`exit()` from transport code. This keeps the transport unit-testable in
+isolation. `ProducerApp`/`ConsumerApp` own logging and the final non-zero
+exit at every iteration: they inspect the result, log the detail, and
+return non-zero from `main()`. Same split applies to `Malformed`:
+`receive()` returns the value, `ConsumerApp`'s loop logs and exits. The
+error type itself can stay a small enum plus a logged string — the
+detect/act-on split is the requirement, not the type's sophistication.
+This same principle already applies in v1 with only a `bool` to report it.
 
 No exceptions thrown across the `ITransport` boundary, no `errno`-style
-out-parameter threaded through every call, no attempt to retry or
-self-heal, at any iteration. This is deliberately the same shape as the
-existing `layoutVersion`-mismatch handling and the `Malformed` handling
-above — this is the minimum needed so "what happens on a malformed frame or
-an OS failure" has one clear, stated answer instead of being left to
-whatever an unhandled exception or an ignored return code happens to do.
+out-parameter, no retry or self-heal, at any iteration.
 
 #### Wire format: `Header`/`Message` layout
 
@@ -968,33 +841,17 @@ not left to "whatever the compiler happens to do." **v1 uses a minimal
   v2 shapes — bumping from one to the other is itself exactly the kind of
   layout change `layoutVersion` (see "Lifecycle and ownership" below,
   **[v2]**) exists to catch.
-- **`sessionId`** — **[v2]**. Identifies one producer run — see "Session ID:
-  distinguishing restart from loss" below for why this exists and how the
-  consumer uses it. v1 has no restart disambiguation at all: a v1 consumer
-  has no way to distinguish a producer restart from data loss, because v1
-  has no crash-recovery story in the first place (see "v1 simplifications"
-  below) — the field simply doesn't exist yet.
+- **`sessionId`** — **[v2]**. Identifies one producer run — see "Session
+  ID: distinguishing restart from loss" below. v1 has no restart
+  disambiguation at all — the field doesn't exist yet.
 - **`timestamp`'s clock, unit, and capture point are deliberately left
-  undefined even once introduced in v2 — the field is reserved, not yet
-  interpreted.** Nothing at v2 reads `timestamp` for any decision (not
-  `PacketValidator`, not `StatsReporter`); its only role is as one of the
-  fields the checksum protects (see "Checksum: algorithm and scope" below),
-  where its *presence and stability* matter but its *meaning* does not. The
-  producer populates it with `std::chrono::steady_clock::now()`'s count at
-  the point it builds the header — some value must go in the field for the
-  checksum to cover, and `steady_clock` is the safe, non-committal default
-  given the monotonic-clock preference established elsewhere in this
-  document (see `StatsReporter`'s use of `steady_clock` over `system_clock`
-  in Part III) — but neither the specific clock, nor the unit (ticks vs. ns
-  vs. ms), nor "producer-build-time vs. some other capture point" is a
-  committed contract yet. **Latency measurement is what would actually need
-  this field defined precisely** (producer-timestamp vs. receive-timestamp,
-  a consistent clock/unit/capture-point contract both processes agree on),
-  and that feature is deferred beyond v2 (see "Explicitly deferred
-  (consumer)" in Part III). Defining `timestamp`'s semantics ahead of that
-  feature actually needing them risks committing to a contract before the
-  requirement is known — pin it down when latency measurement is actually
-  built, not before.
+  undefined even once introduced in v2** — reserved, not interpreted.
+  Nothing reads it for any decision; its only role is as one of the fields
+  the checksum protects, where presence/stability matter but meaning
+  doesn't. Producer populates it with `steady_clock::now()`'s count at
+  header-build time — a safe default, not a committed contract. Latency
+  measurement is what would need this pinned down precisely, and that's
+  deferred beyond v2 (see "Explicitly deferred (consumer)" in Part III).
 - **`Message` drops `std::vector<std::byte> payload` entirely, at every
   iteration** — a vector owns a heap pointer valid only in its own process's
   address space; copying that struct into shared memory hands the consumer
@@ -1018,21 +875,20 @@ not left to "whatever the compiler happens to do." **v1 uses a minimal
 ##### `send()`/`receive()` contract: one copy in, one copy out
 
 **Every iteration uses caller-owned buffers and a single `memcpy` per
-direction — not a zero-copy borrowed view, at v1, v2, or v3.** An earlier
-draft of this design had `receive()` return a `MessageView` borrowed
-directly from the ring slot, with the read cursor advancing only on an
-explicit `release(view)` call. That was rejected before implementation: it
-added a manual lifetime contract (forgetting to `release()` deadlocks the
-producer, since the slot is never freed), a transport-specific `release()`
-concept with no precedent elsewhere in this design, a genuine
-use-after-free hazard if `view` is read after `release()`, and —
-decisively — no matching story for the producer side, which still needed
-*some* reserve/write/publish sequence to build directly into a slot it
-"already owned." That gap was hand-waved rather than designed. None of this
-is worth taking on before the 1:1 happy path even works, and v3's
-performance work (see above) targets the mutex, not this copy — a
-zero-copy borrowed-slot API remains a valid *future* optimization beyond
-v3, not something any currently-planned iteration needs.
+direction — not a zero-copy borrowed view, at v1, v2, or v3.** A
+borrowed-view API — `receive()` returning a `MessageView` directly into
+the ring slot, with the read cursor advancing only on an explicit
+`release(view)` call — is rejected: it requires a manual lifetime contract
+(forgetting to `release()` deadlocks the producer, since the slot is never
+freed), a transport-specific `release()` concept with no precedent
+elsewhere in this design, a genuine use-after-free hazard if `view` is
+read after `release()`, and no clean equivalent on the producer side,
+which would still need *some* reserve/write/publish sequence to build
+directly into a slot it "already owns." None of this is worth taking on
+before the 1:1 happy path even works, and v3's performance work (see
+above) targets the mutex, not this copy — a zero-copy borrowed-slot API
+remains a valid *future* optimization beyond v3, not something any
+currently-planned iteration needs.
 
 Instead, at every iteration:
 
@@ -1149,61 +1005,31 @@ exit non-zero, don't try to be clever about continuing.
 
 ##### Session ID: distinguishing restart from loss — **[v2]**
 
-**v1 has no session disambiguation** — this entire mechanism, and the
-problem it solves, only becomes relevant once v2 introduces crash recovery
-and stale-segment recreation (see "Crash recovery scope" below); v1 has no
-restart-recovery story for a producer restart to be confused with in the
-first place.
+**v1 has no session disambiguation** — this mechanism only becomes
+relevant once v2 introduces crash recovery and stale-segment recreation
+(see "Crash recovery scope" below).
 
-A sequence-number discontinuity is ambiguous on its own. Consumer observes:
+A sequence-number discontinuity is ambiguous: `..., 41, 42, 43, 0, 1, 2,
+...` could mean the producer restarted (new process, counter reset,
+nothing lost — a new session) or a genuine loss/reorder defect within the
+same session (see "Defect handling" below). `sequenceNumber` alone can't
+tell them apart.
 
-```text
-..., 41, 42, 43, 0, 1, 2, ...
-```
+**Fix: `sessionId`, a random `uint64_t` generated once at producer
+startup** (random, not PID+start-time, to sidestep PID reuse across
+reboots). Producer copies it into **every** `Header` for that run — lives
+only in `Header` (wire format), not segment metadata, since the segment
+already has its own PID-based liveness check for a distinct concern (crash
+recovery, see "Lifecycle and ownership" below).
 
-This could mean either of two very different things, and `sequenceNumber`
-alone cannot tell them apart:
-
-1. **The producer restarted.** It's a new process; its `sequenceNumber`
-   counter starts over at 0. Nothing was actually lost — this is a new
-   session, not a gap in the old one.
-2. **Genuine massive loss or reorder within the same session** — a real
-   defect, per "Defect handling" below.
-
-**Fix: `sessionId`, a random `uint64_t` generated once at producer startup**
-(not derived from PID+start-time — a PID can theoretically repeat across
-reboots/wraparound, and a random 64-bit value has negligible collision
-probability for this use case without that edge case). Producer generates it
-once before entering `Ready` and copies it into **every** `Header` it builds
-for that run. It lives only in `Header` (wire format), not as a separate
-segment-metadata field — the segment already has its own PID-based liveness
-check for crash recovery (see "Lifecycle and ownership" below), which is a
-distinct concern from per-message restart detection; `sessionId` doesn't need
-to duplicate that.
-
-Placed in `Header` itself (not only in segment metadata checked once at
-attach) — the consumer already inspects every `Header` it receives, so
-checking one more field there is free, and it composes correctly with the
-per-message sequence check either way. **This does not actually let an
-already-attached consumer follow a producer restart mid-stream, at any
-iteration** — that would require the consumer to detach and reattach to the
-*new* segment the restarted producer creates, which "A producer restart is
-not visible to an already-attached consumer" (see "Crash recovery scope"
-below) explicitly says is out of scope; an already-attached consumer just
-keeps reading its stale mapping and never sees the new segment at all. What
-per-`Header` placement *does* provide is exactly the case in "Producer
-restart" under "Testing strategy" below: a **new** consumer, attaching
-*after* the restart, correctly treats the reset `sequenceNumber` as a new
-session rather than a defect from its very first message — including if
-that consumer happened to attach partway through what looks like "mid-run"
-from an external observer's perspective, since it has no prior `sessionId`
-to compare against. Per-`Header` placement is kept as **future-compatible
-metadata**: it is exactly what a later mid-stream-follow feature (detach
-whenever the segment's identity changes, resume against the new one) would
-need to detect the change — building that resume logic is not this
-document's job at any planned iteration, but choosing not to bury
-`sessionId` in attach-only metadata means it's already in the right place
-for that feature to consume without a wire-format change.
+Placing it per-`Header` (not attach-only metadata) means a **new**
+consumer attaching *after* a restart correctly treats the reset
+`sequenceNumber` as a new session, not a defect, from its very first
+message. It does **not** let an *already-attached* consumer follow a
+restart mid-stream — that needs detach/reattach to the new segment, out of
+scope at any iteration (see "Crash recovery scope" below). Per-`Header`
+placement is kept as future-compatible metadata for that feature without
+a wire-format change later.
 
 ```cpp
 if (header.sessionId != lastSessionId) {
@@ -1235,30 +1061,22 @@ flip that leaves `payloadSize` and `sequenceNumber` intact but corrupts
 payload bytes. That gap is accepted for v1 and closed in v2 by this
 mechanism:
 
-- **CRC32, not FNV-1a.** FNV-1a is a general-purpose hash tuned for
-  hash-table distribution, not for detecting accidental bit-level
-  corruption. CRC32 is specifically designed as an error-detecting code —
-  it has guaranteed detection properties for common corruption patterns
-  (burst errors, single/double bit flips), which is exactly the failure
-  mode a checksum on an IPC channel exists to catch. Use CRC32
-  unconditionally; no pluggable checksum strategy planned at any iteration.
-- **Checksum covers header fields *and* payload, not payload alone.**
-  `checksum` itself is excluded from its own input, but `sessionId`,
-  `timestamp`, `sequenceNumber`, and `payloadSize` are included:
+- **CRC32, not FNV-1a.** FNV-1a targets hash-table distribution, not
+  bit-level corruption detection. CRC32 has guaranteed detection
+  properties for common corruption patterns (burst errors, single/double
+  bit flips) — exactly what a checksum on an IPC channel needs to catch.
+  Used unconditionally; no pluggable strategy planned.
+- **Checksum covers header fields *and* payload, not payload alone**
+  (`checksum` itself excluded from its own input):
   ```text
   checksum = crc32(bytes_of(sessionId, timestamp, sequenceNumber, payloadSize) ++ payload)
   ```
-  Rationale: a payload-only checksum leaves `sessionId`, `sequenceNumber`,
-  and `payloadSize` unprotected. A corrupted `sequenceNumber` would silently
-  feed wrong data into the consumer's own loss/reorder detection (the
-  mechanism meant to catch defects would itself be blind to corruption of
-  its input), a corrupted `sessionId` could cause a real defect to be
-  misread as a session change (or vice versa) — exactly the ambiguity this
-  field exists to resolve — and a corrupted `payloadSize` risks the consumer
-  reading the wrong number of bytes from the slot before validation even
-  runs (which is exactly why the `payloadSize` bound-check in `receive()`
-  cannot itself depend on the checksum — see "`send()`/`receive()`
-  contract" above — it has to run first, independent of CRC).
+  A payload-only checksum would leave `sequenceNumber` (feeding the
+  consumer's own loss/reorder detection), `sessionId` (the restart/loss
+  disambiguation itself), and `payloadSize` unprotected. The `payloadSize`
+  bound-check in `receive()` still can't depend on the checksum — see
+  "`send()`/`receive()` contract" above — it must run first, independent
+  of CRC.
 
 ##### Defect handling (consumer side)
 
@@ -1306,29 +1124,19 @@ thread. This whole section describes v2 machinery layered in afterward.
 `std::condition_variable`) is driven by two independent inputs, both of
 which have real hazards if implemented naively:
 
-- **stdin thread** (`p`/`r`/`q`): a thread blocked in a blocking read call on
-  stdin cannot be woken by a condition variable — on quit, this thread would
-  still be sitting in `read()`, unable to observe the shutdown or be
-  `join()`-ed cleanly. Fix: on the quit path, close/shutdown the stdin file
-  descriptor (or use a cancellable read primitive) so the blocking read
-  actually returns, rather than leaving the thread stuck until process exit.
-- **Signals** (`SIGINT`/`SIGTERM`): a signal handler must not call
-  `controller.pause()/resume()/stop()` directly. Those use `std::mutex`,
-  which is not async-signal-safe — acquiring a mutex (or doing most
-  non-trivial work) inside a signal handler risks deadlock if the signal
-  interrupts the same thread while it already holds that mutex. Two
-  accepted-safe patterns, either is fine:
-  - **Self-pipe**: signal handler does the one async-signal-safe thing
-    (`write()` a byte to a pipe), and a dedicated thread blocks in `read()`
-    on that pipe, translating the wakeup into a real `controller.stop()`
-    call outside signal-handler context.
-  - **Signal-waiting thread**: block `SIGINT`/`SIGTERM` on all threads at
-    startup, then have one dedicated thread call `sigwait()`, which safely
-    blocks for a signal without registering a handler at all, and call
-    `controller.stop()` from ordinary thread context after it returns.
-
-  Either way, no controller method is ever invoked from inside actual signal
-  handler context — only from a normal thread that was woken by one.
+- **stdin thread** (`p`/`r`/`q`): a thread blocked in `read()` on stdin
+  can't be woken by a condition variable. Fix: on quit, close/shutdown the
+  stdin fd (or use a cancellable read) so the blocking read actually
+  returns.
+- **Signals** (`SIGINT`/`SIGTERM`): a handler must not call
+  `controller.pause()/resume()/stop()` directly — `std::mutex` isn't
+  async-signal-safe and risks deadlock if the signal interrupts a thread
+  already holding it. Two accepted patterns: **self-pipe** (handler
+  `write()`s a byte, a dedicated thread `read()`s it and calls
+  `controller.stop()`), or **signal-waiting thread** (block the signals at
+  startup, one thread calls `sigwait()`, calls `controller.stop()` after
+  it returns). Either way, no controller method runs from actual signal
+  handler context.
 
 This control-loop machinery (`Controller`, stdin thread, signal-safety
 pattern) is shared code, used unchanged by both producer and consumer — see
@@ -1399,76 +1207,42 @@ live outside the segment and aren't reclaimed by unmapping it.
   project creates (see `kOwnerReadWrite` in `common/util/posix.h`). Producer
   and consumer are expected to run as the same user; no cross-user sharing
   in scope at any iteration.
-- **Either process may start first — [v2].** v1 assumes the producer starts
-  first (see "v1 simplifications" below); this bullet describes the v2
-  upgrade. This is expected, not a corner case, once v2 adds it (a
-  monitoring consumer might be left running across multiple producer runs,
-  or a user might launch consumer before producer out of habit). It's
-  handled asymmetrically by *role*, not symmetrically by *race*: producer is
-  the only process that ever creates the segment (`O_CREAT | O_EXCL`);
-  consumer only ever opens existing (`O_RDWR`, no `O_CREAT`), regardless of
-  which one happened to start first. Consumer starting first does not mean
-  consumer creates it — it means consumer waits longer. This is deliberate:
-  the segment's content (`payloadSize`/`ringCapacityBytes`, from producer's
-  CLI flags) is producer-defined config; a symmetric "whoever gets there
-  first creates it" model would require the consumer to also carry defaults
-  for config it has no CLI flags for, and would make ownership conditional
-  on race outcome instead of on role. One creator, one role, regardless of
-  start order.
-- **Attach retries — [v2].** v1's consumer assumes the segment and both
-  semaphores already exist (see "v1 simplifications" below) and does a
-  single blocking attach, not a retry loop. From v2 onward: if the segment
-  doesn't exist yet (producer isn't up), `shm_open` fails with `ENOENT` —
-  consumer retries on a bounded backoff (e.g. every 100 ms); the same retry
-  covers `sem_open` failing on either named semaphore, since a producer
-  that hasn't finished startup may have created the segment but not yet
-  both semaphores. Unlike a producer crash-recovery check (bounded, see
-  "Stale segments" below), a consumer's wait for a producer that simply
-  hasn't started yet is not itself an error condition — a 5 s give-up
-  would misfire on the legitimate "consumer launched well before producer"
-  case. Retries indefinitely on `ENOENT`/`state != Ready` (logging
-  periodically so it's visibly waiting, not hung); an operator can
-  `Ctrl-C` it if that's not what they wanted. A bounded give-up is worth
-  adding later if this proves annoying in practice, but isn't required for
-  correctness.
-- **Initialization readiness — [v2].** v1 has no `state` field to gate on
-  (see "v1 simplifications" below) — v1's consumer just attaches once the
-  segment and both semaphores exist and the control block is the expected
-  size. From v2 onward: segment *existing* isn't sufficient — the producer
-  must finish constructing `cursorMutex`, both named semaphores, and the
-  cursors before a consumer may touch any of them. A `state` field (see
-  state machine below), placed at a fixed offset at the very start of the
-  segment, gates this: producer writes its own PID **first** (see "Stale
-  segments after a crash" below for why this ordering matters), then sets
-  `Initializing` right after `mmap`, does `cursorMutex`/semaphore/cursor
-  setup, then atomically publishes `Ready` last. Consumer's retry loop
-  treats `ENOENT` and `state != Ready` identically — keep backing off and
-  retrying.
-- **Layout compatibility — [v2].** A `uint32_t layoutVersion` field
-  immediately after `state`, bumped whenever `Header`/slot layout changes
-  (including the v1→v2 `Header` shape change itself — see "Wire format"
-  above). Consumer checks this right after observing `state == Ready`; a
-  mismatch means consumer logs and exits non-zero instead of interpreting
-  bytes through the wrong struct layout. v1 has no such field — v1's
-  producer and consumer are built from the same source at the same time,
-  so a layout mismatch between them isn't a scenario v1 needs to guard
-  against yet.
+- **Either process may start first — [v2].** v1 assumes the producer
+  starts first (see "v1 simplifications" below). From v2 onward, handled
+  asymmetrically by *role*, not by *race*: producer is the only process
+  that ever creates the segment (`O_CREAT | O_EXCL`); consumer only ever
+  opens existing (`O_RDWR`, no `O_CREAT`), regardless of start order.
+  Consumer starting first just means it waits longer — the segment's
+  content is producer-defined config, so a symmetric "whoever gets there
+  first creates it" model isn't used.
+- **Attach retries — [v2].** v1's consumer does a single blocking attach
+  (see "v1 simplifications" below). From v2 onward: `shm_open`/`sem_open`
+  failing (`ENOENT`, or producer mid-startup) retries indefinitely on a
+  bounded backoff (e.g. 100 ms), logging periodically — not an error
+  condition, since a consumer legitimately can start well before its
+  producer. A bounded give-up isn't required for correctness.
+- **Initialization readiness — [v2].** v1 has no `state` field (see "v1
+  simplifications" below) — segment existing is enough to attach. From v2
+  onward, segment *existing* isn't sufficient: a `state` field (see state
+  machine below) gates it. Producer writes its own PID **first** (see
+  "Stale segments after a crash" below for why), sets `Initializing` right
+  after `mmap`, does `cursorMutex`/semaphore/cursor setup, then publishes
+  `Ready` last. Consumer's retry loop treats `ENOENT` and `state != Ready`
+  identically.
+- **Layout compatibility — [v2].** A `uint32_t layoutVersion` field after
+  `state`, bumped on any `Header`/slot layout change. Consumer checks it
+  right after `state == Ready`; mismatch → log and exit non-zero. v1 has
+  no such field — producer and consumer are built from the same source at
+  the same time, so mismatch isn't a v1 scenario.
 - **`shm_unlink`/`sem_unlink` ownership** — producer only, on clean
-  shutdown, at every iteration (v1: simply on process exit; v2 onward:
-  after reaching `Closed`, see state machine below). Consumer never
-  unlinks either the segment or either semaphore; it only detaches its own
-  mapping (`munmap`/`close`) and closes its own semaphore handles
-  (`sem_close`).
+  shutdown, at every iteration (v1: on process exit; v2 onward: after
+  reaching `Closed`). Consumer never unlinks either; it only detaches its
+  mapping and closes its own semaphore handles.
 - **Stale segments after a crash — [v2].** v1 has no crash-recovery story
-  (see "v1 simplifications" below) — a leftover segment (and its two
-  semaphores) from a killed v1 producer would need to be removed manually
-  (e.g. `rm /dev/shm/ipc_ring_v1` on Linux, plus the equivalent
-  `sem_unlink`s) before the next run. From v2 onward: `shm_unlink`/
-  `sem_unlink` aren't automatic on crash, so the segment and semaphores can
-  outlive the process that created them. Producer startup handles this
-  explicitly: before attempting `O_CREAT | O_EXCL`, try a plain `shm_open`
-  (no `O_EXCL`). If that succeeds, inspect `state` and the PID the previous
-  producer stored (see below):
+  (see "v1 simplifications" below) — a leftover segment must be removed
+  manually before the next run. From v2 onward: producer startup tries a
+  plain `shm_open` (no `O_EXCL`) before `O_CREAT | O_EXCL`; on success,
+  inspects `state` and the stored PID:
   - `state == Closed` → previous producer shut down cleanly but didn't
     unlink for some reason; safe to unlink and recreate the segment and
     both semaphores.
@@ -1479,25 +1253,16 @@ live outside the segment and aren't reclaimed by unmapping it.
     start with a clear error (this project is 1:1 at every iteration, two
     producers on the same segment is a misuse, not a case to silently
     handle).
-  - **PID must be valid *before or at* the transition into `Initializing`,
-    not deferred to `Ready`.** An earlier version of this document had the
-    producer write its PID only "at the point it publishes `Ready`," which
-    leaves a real gap: if a producer crashes *during* `Initializing` (after
-    setting `state`, before ever reaching `Ready`), the PID field is still
-    whatever `ftruncate`'s zero-fill left it — not the crashed producer's
-    actual PID. A second producer's stale-segment check would then see
-    `state == Initializing` (looks live) but read a bogus/zero PID, making
-    `kill(pid, 0)` meaningless: `kill(0, 0)` has its own special
-    (signal-to-process-group) semantics, not "is PID 0 alive," and a
-    garbage nonzero PID could coincidentally belong to an unrelated live
-    process, causing a false "another producer is genuinely running"
-    refusal. **Fix:** the producer writes its own PID into the segment
-    (fixed field, right after `layoutVersion`) as the very first thing it
-    does after `mmap` — *before* setting `state` to `Initializing` — so the
-    field is always valid for any `state` value a second producer might
-    observe, including `Initializing` itself. This PID is what the
-    crash-recovery check above reads, for any live-looking `state`, not
-    only for `Ready`.
+  - **PID must be valid *before or at* the transition into
+    `Initializing`, not deferred to `Ready`.** Writing it only at `Ready`
+    would leave a gap: a producer crashing *during* `Initializing` leaves
+    the PID field as `ftruncate`'s zero-fill, not a real PID — `kill(0, 0)`
+    has special (signal-to-process-group) semantics, not "is PID 0 alive,"
+    and a garbage nonzero PID could false-positive against an unrelated
+    live process. Fix: producer writes its own PID (fixed field, right
+    after `layoutVersion`) as the very first thing after `mmap`, before
+    setting `state` to `Initializing` — valid for any `state` a second
+    producer might observe.
 
 ##### Lifecycle state machine — **[v2]**
 
@@ -1518,32 +1283,17 @@ Initializing -> Ready -> Stopping -> Closed
 ```
 
 The lock-free requirement in "Cross-process atomics: an explicit platform
-requirement" above (`is_always_lock_free`, verified via the same
-release/acquire smoke test) **applies to `state` exactly as it does to the
-v3 write/read cursors — this is not a separate, unstated assumption.**
-`state` is cross-process shared atomic data read and written outside any
-mutex, same as the v3 cursors: the consumer's attach-retry loop polls it
-directly (see "Initialization readiness" above) and the bounded-wait
-predicate check reads it on every wake (see "Clean producer shutdown and
-the receive predicate" below) — neither takes the mutex to do so. The same
-publication/consumption discipline from "Cursor synchronization model"
-applies too: the producer completes whatever `state` implies (finishing
-pthread/cursor setup before `Ready`; finishing its own drain before
-`Closed`) *before* the release-store that publishes the new `state` value,
-and any process reading `state` uses an acquire-load before trusting that
-what the new state implies has actually happened — e.g. the consumer's
-acquire-load observing `Ready` is what makes it safe to then read
-`layoutVersion` and the cursors, not the mere fact of observing *some*
-value in the `state` field. `std::uint32_t` specifically (not `uint64_t`
-like the cursors) is enough range for four states and keeps the field
-smaller — lock-free guarantees for `std::atomic` don't depend on matching
-width across every atomic in the segment, only on each individual
-instantiation satisfying `is_always_lock_free` on its own, which
-`uint32_t` does exactly as reliably as `uint64_t` on every mainstream
-platform this project targets. Since `state` is atomic and cross-process
-from the moment it's introduced in v2 (unlike the cursors, which stay
-mutex-protected plain integers until v3), it needs this same lock-free
-verification from v2 onward, ahead of the cursors' own v3 upgrade.
+requirement" above (`is_always_lock_free`) **applies to `state` exactly as
+it does to the v3 write/read cursors.** `state` is cross-process shared
+atomic data read outside any mutex from v2 onward (ahead of the cursors'
+own v3 upgrade): the attach-retry loop polls it (see "Initialization
+readiness" above), the bounded-wait predicate reads it on every wake (see
+"Clean producer shutdown" below). Same publication/consumption discipline
+as the cursors — producer release-stores the new `state` only after
+completing what it implies (pthread/cursor setup before `Ready`; drain
+before `Closed`); readers acquire-load before trusting it. `uint32_t`
+(not `uint64_t` like the cursors) is enough range for four states —
+`is_always_lock_free` doesn't require matching width across atomics.
 
 - **`Initializing`** — producer has created/opened the segment and is
   constructing sync primitives and cursors. Consumer must not attach beyond
@@ -1566,54 +1316,34 @@ lifecycle transition. This subsection is entirely v2 scope, describing how
 the mechanism above interacts with the bounded-wait predicate once both
 exist.
 
-An earlier version of this document specified the blocked-`receive()`
-wake checks (see "Waking a blocked `send()`/`receive()`" above) as only
-predicate-met / local-`Stopped` / producer-PID-liveness — it never said
-what happens when the ring goes empty *because the producer is finishing
-normally*, as opposed to being dead. That's a real, common case (every
-clean shutdown passes through it: producer drains its own send path,
-reaches `Stopping`, then `Closed`, well before the consumer necessarily
-finishes draining) and deserves its own outcome, not a fall-through to
-"wait out the bound, time out, re-check, eventually notice via some other
-path."
+The blocked-`receive()` wake checks (see "Waking a blocked
+`send()`/`receive()`" above) need to cover the ring going empty *because
+the producer is finishing normally*, not just going dead — a distinct
+outcome, not a fall-through to "wait out the bound, time out, re-check,
+eventually notice via some other path." This is a real, common case:
+every clean shutdown passes through it, since the producer drains its own
+send path, reaches `Stopping`, then `Closed`, well before the consumer
+necessarily finishes draining.
 
 **Fix, in two parts:**
 
 1. **Producer posts `availableMessages` on every `state` transition from
-   `Ready` onward** — into `Stopping` and again into `Closed` — even though
-   no new message was written. This is a deliberate, explicit exception to
-   "producer posts `availableMessages` only after advancing the write
-   cursor" (see "Cursor synchronization model" above): the state transition
-   itself is news the consumer needs, so it gets the same wakeup treatment
-   as a new message.
-
-   An earlier version of this document argued this specific signal needed
-   to be sent "while holding the condition-variable mutex," since only a
-   notifier that also holds the mutex gets the classic no-lost-wakeup
-   guarantee — everything else risks the signal landing in a window where
-   no one is currently waiting. That argument doesn't apply here: `sem_post`
-   on `availableMessages` is unconditional and cumulative regardless of
-   whether any mutex is held around it (see "Two distinct sync mechanisms"
-   and "v3: lock-free fast path" above) — there is no window in which this
-   post could be lost, at v1, v2, or v3 alike. This is what makes the
-   producer's prompt-wake claim in its Definition of Done actually true,
-   rather than merely likely: a consumer already blocked in `sem_timedwait`
-   at the moment of the transition is guaranteed to be woken by this post
-   specifically, not just eventually by the next timeout — and this holds
-   with no special-casing needed around the mutex at all.
-2. **The bounded-wait predicate check (step 2 in "Waking a blocked
-   `send()`/`receive()`" above) explicitly includes `state`:** on every
-   wake, `receive()` checks not just "is the ring non-empty" but "is the
-   ring non-empty, **or** is `state` `Stopping`/`Closed`." If the ring is
-   empty and `state` is `Stopping` or `Closed`, `receive()` returns
-   `ReceiveResult::EndOfStream` (see the enum definition above) instead of
-   continuing to wait. If the ring is *not* empty, `receive()` still drains
-   normally regardless of `state` — `Stopping`/`Closed` means "no more new
-   messages are coming," not "discard what's already buffered." This is
-   exactly the "consumer drains whatever remains, then exits" behavior
-   already specified for `Stopping`/`Closed` above, now given a precise
-   signal (`EndOfStream`) instead of leaving the consumer to infer "drained
-   and producer is gone" from the absence of further messages.
+   `Ready` onward** (into `Stopping`, again into `Closed`), even with no
+   new message written — a deliberate exception to "post only after
+   advancing the write cursor" (see "Cursor synchronization model" above),
+   since the transition itself is news the consumer needs. No mutex is
+   needed to avoid a lost wakeup here: `sem_post` is unconditional and
+   cumulative regardless of any mutex (see "Two distinct sync mechanisms"
+   above) — a consumer already blocked in `sem_timedwait` at the moment of
+   transition is guaranteed woken by this post, not just eventually by the
+   next timeout.
+2. **The bounded-wait predicate check explicitly includes `state`:** on
+   every wake, `receive()` checks "ring non-empty **or** `state` is
+   `Stopping`/`Closed`." If empty and `Stopping`/`Closed`, returns
+   `ReceiveResult::EndOfStream` instead of continuing to wait. If not
+   empty, `receive()` still drains normally regardless of `state` —
+   `Stopping`/`Closed` means no more *new* messages, not "discard what's
+   buffered."
 
 `EndOfStream` is expected, not an error: the consumer's normal shutdown
 path (per Part III) treats it the same way it already treats observing
@@ -1668,17 +1398,12 @@ No handshake, no race: `cursorMutex` is simply never destroyed out from
 under a peer that might still be using it, because nothing ever destroys
 it at all.
 
-**The two named semaphores don't have this problem, and don't need the
-same policy.** Unlike `cursorMutex`, which lives *inside* the segment and
-is reclaimed passively when both processes unmap it, `freeSlots`/
-`availableMessages` are separate, explicitly-named OS resources that the
-producer *does* explicitly tear down (`sem_unlink`, per "Ownership by
-resource" above) after reaching `Closed`. This is safe for the same reason
-`shm_unlink` is safe at step 1 above: `sem_unlink` removes the *name* from
-the semaphore namespace but doesn't invalidate handles a process already
-holds open via `sem_open` — a consumer still draining the ring after the
-producer's `sem_unlink` keeps working against its already-open handle,
-exactly as it keeps working against the segment after `shm_unlink`.
+**The two named semaphores don't have this problem.** Unlike `cursorMutex`
+(reclaimed passively on unmap), `freeSlots`/`availableMessages` are
+separate, explicitly-named OS resources the producer *does* tear down
+(`sem_unlink`) after `Closed` — safe for the same reason `shm_unlink` is
+safe at step 1: removing the *name* doesn't invalidate handles a process
+already holds open.
 
 ##### Crash recovery scope — **[v2 partially closes this; some gaps remain beyond v3]**
 
@@ -1690,61 +1415,38 @@ mechanisms (PID-liveness check, bounded wait, `sessionId`, teardown
 ordering) do and do not cover, once they exist.
 
 The v2 mechanisms cover clean shutdown and stale-segment cleanup at next
-startup. They do **not** add up to full crash recovery, and pretending
-otherwise would overstate what v2 actually does. Three gaps remain, each
-real, each out of scope through v3 as currently planned (a fourth —
-teardown racing a still-attached peer — was a clean-shutdown bug, not a
-crash-only gap, and is fixed above in "Teardown ordering," not merely
-scoped out, and applies from v1 onward):
+startup — not full crash recovery. Three gaps remain, out of scope through
+v3 (a fourth — teardown racing a still-attached peer — is a clean-shutdown
+bug, not crash-only, and is fixed in "Teardown ordering" above, applying
+from v1 onward):
 
-- **Only the producer's PID is stored.** There is no consumer-liveness
-  record in the segment, so the producer has no way to detect a gone
-  consumer — the "Waking a blocked `send()`/`receive()`" mechanism above
-  only lets the *consumer* detect a dead *producer*, not the reverse. This
-  is not crash-specific: a consumer that exits **cleanly** (`q`/`SIGINT`,
-  reaching its own `Stopped` state and returning) is exactly as invisible to
-  the producer as one that crashes — neither writes anything to the segment
-  on the way out, since the consumer owns no lifecycle field the producer
-  reads. A producer blocked on a full ring, whether the consumer crashed or
-  quit normally, wakes only on its own local `Controller` state, never on
-  consumer absence — see `SendResult` in "Waking a blocked `send()`/`receive()`"
-  above, which has no `PeerClosed` case for exactly this reason.
-- **`cursorMutex` is not robust — and this leaves a narrower version of
-  the old best-effort gap.** If a process dies while holding
-  `ControlBlock::cursorMutex` (a window of only a handful of instructions
-  around the cursor increment — see "Cursor synchronization model" above),
-  the mutex stays locked forever. Unlike an earlier condvar-based version
-  of this design, this does **not** block `sem_timedwait` itself or the
-  PID-liveness check that follows it — POSIX semaphores have no associated
-  mutex to re-acquire on return, so `ReceiveResult::PeerClosed` detection
-  (per "Waking a blocked `send()`/`receive()`" above) is reachable
-  unconditionally after every wake. The exposure that remains is: *after*
-  a `PeerClosed`-or-not determination, the consumer's next `receive()`
-  still needs to lock `cursorMutex` to claim its read cursor, and a
-  producer that died mid-increment leaves that lock orphaned. `PTHREAD_MUTEX_ROBUST`
-  (`pthread_mutex_consistent` + `EOWNERDEAD` handling) would fix this, but
-  is not implemented at any currently-planned iteration through v2; v3
-  closes it by removing the mutex from this path entirely (see "v3:
-  lock-free fast path" above).
-- **A producer restart is not visible to an already-attached consumer.**
-  Stale-segment recovery (above) unlinks and recreates the segment, but a
-  consumer that already has the *old* segment `mmap`'d has no trigger to
-  detach and reattach — it keeps reading its stale mapping and never
-  observes the new `sessionId`. The `sessionId` check ("Session ID:
-  distinguishing restart from loss" above) only works for a consumer that
-  attaches *after* the restart; it does nothing for one already attached
-  across it.
+- **Only the producer's PID is stored** — no consumer-liveness record, so
+  the producer can't detect a gone consumer (crashed or cleanly quit
+  alike; neither writes anything to the segment on the way out). A
+  producer blocked on a full ring wakes only on its own `Controller` state,
+  never on consumer absence — `SendResult` has no `PeerClosed` for exactly
+  this reason.
+- **`cursorMutex` is not robust.** A process dying while holding it (a
+  window of a few instructions around the cursor increment) leaves it
+  locked forever. This does **not** block `sem_timedwait` or the
+  PID-liveness check — POSIX semaphores have no mutex to re-acquire, so
+  `PeerClosed` detection is reachable unconditionally after every wake.
+  What remains exposed: the consumer's *next* `receive()` still needs to
+  lock `cursorMutex`, and a producer that died mid-increment leaves it
+  orphaned. `PTHREAD_MUTEX_ROBUST` would fix this; not implemented through
+  v2 — v3 closes it by removing the mutex from this path entirely.
+- **A producer restart is invisible to an already-attached consumer.**
+  Stale-segment recovery unlinks and recreates the segment, but an
+  already-`mmap`'d consumer has no trigger to detach/reattach — it keeps
+  reading its stale mapping. The `sessionId` check only helps a consumer
+  attaching *after* the restart.
 
-**Explicitly declared unsupported through v3:** a forced crash (`kill -9`,
-segfault, OOM-kill) of either process while the *other* is live, and a
-live producer restart against an already-attached consumer. What v2/v3
-*do* support: clean shutdown (`Stopping` → `Closed` → unlink, both
-processes independently drain and exit via their normal quit path per
-"Teardown ordering" above — no destroy-ordering race in that path) and
-stale-segment cleanup the *next* time a producer starts against a segment
-nobody is attached to. Full crash recovery (robust mutex, consumer-liveness
-record, detach/reattach signaling) is future work beyond v3, not a gap to
-silently paper over.
+**Explicitly unsupported through v3:** a forced crash of either process
+while the other is live, and a live producer restart against an
+already-attached consumer. What v2/v3 *do* support: clean shutdown and
+stale-segment cleanup at the *next* startup against an unattended segment.
+Full crash recovery (robust mutex, consumer-liveness record,
+detach/reattach signaling) is future work beyond v3.
 
 #### Shared directory layout
 
@@ -1849,44 +1551,24 @@ there's no value in writing a corruption test against v1's minimal
 features exist):
 
 - **Cross-process atomic visibility — [v3], covered by static assertion
-  only, no runtime smoke test.** An earlier version of this document
-  called for a `fork()`-based release-store (parent) / acquire-load
-  (child) `std::atomic<uint64_t>`-in-shared-memory runtime check, on the
-  reasoning that the compile-time `is_always_lock_free` `static_assert` in
-  "Cross-process atomics: an explicit platform requirement" above proves
-  the type has no internal lock but says nothing about actual cross-process
-  visibility. That runtime test was implemented, then deliberately removed:
-  on every mainstream platform this project targets, a lock-free
-  `std::atomic` is implemented as a plain CPU load/store/RMW instruction
-  with no process-local state, so `is_always_lock_free` already rules out
-  the one failure mode (an internal, process-local fallback lock) that
-  would make cross-process visibility fail while single-process visibility
-  holds. The runtime test added CI cost and complexity to catch a platform
-  behavior no supported target actually exhibits. Verification therefore
-  rests on the compile-time `is_always_lock_free` `static_assert` alone.
-- **Shutdown — [v2]** — assert stdin thread and signal path both actually
-  cause clean process exit (join, not force-kill) under `SIGINT`/`SIGTERM`
-  and the `q` keypress, from each of `Running`/`Paused` state.
-  - The two prior signal hazards ("stdin thread never gets a wake" and
-    "controller may not be called directly from a handler") are best caught
-    by the same test that drives real `SIGINT` during a blocked `receive()`.
-- **Corruption — [v2]** — deliberately flip a bit in a slot's payload/header
-  after it's written, assert the consumer's error counter increments and
-  the checksum failure is logged, without crashing. Requires v2's checksum
-  to exist at all.
-- **Producer restart — [v2]** — per "Crash recovery scope" above, restart
-  against an *already-attached, live* consumer is explicitly unsupported,
-  so this test does not attempt it. Instead: stop the consumer cleanly,
-  kill and restart the producer, then start a *new* consumer against the
-  recreated segment; assert two independent things: (1) the stale-segment
-  recovery path in "Lifecycle and ownership" is exercised correctly
-  (recreate vs. refuse-to-start based on PID liveness), and (2) the
-  session-ID check in "Session ID: distinguishing restart from loss" fires
-  correctly — the new consumer's `errorCount` does **not** increment
-  despite `sequenceNumber` resetting to 0, because `sessionId` changed.
-- **Version-mismatch — [v2]** — start a consumer against a segment whose
-  `layoutVersion` doesn't match, assert it exits non-zero with a clear
-  message instead of misinterpreting bytes.
+  only, no runtime smoke test.** See "Cross-process atomics: an explicit
+  platform requirement" above for why the compile-time
+  `is_always_lock_free` `static_assert` is sufficient on its own, with no
+  `fork()`-based runtime check needed alongside it.
+- **Shutdown — [v2]** — assert stdin thread and signal path both cause
+  clean process exit (join, not force-kill) under `SIGINT`/`SIGTERM` and
+  `q`, from `Running`/`Paused`, driving a real `SIGINT` during a blocked
+  `receive()`.
+- **Corruption — [v2]** — flip a bit in a written slot, assert `errorCount`
+  increments and the checksum failure logs, without crashing.
+- **Producer restart — [v2]** — restart against an already-attached
+  consumer is unsupported (see "Crash recovery scope" above), so: stop the
+  consumer cleanly, kill/restart the producer, start a *new* consumer;
+  assert stale-segment recovery fires correctly and the new consumer's
+  `errorCount` does **not** increment despite `sequenceNumber` resetting,
+  because `sessionId` changed.
+- **Version-mismatch — [v2]** — consumer against a mismatched
+  `layoutVersion` exits non-zero with a clear message.
 
 ### Part II: Producer Implementation Plan
 
@@ -2036,70 +1718,46 @@ Layered on top of v1's semaphore-backed ring, without changing
 `ITransport`'s public shape or the ring's core concept — v2 adds features
 around/inside the same interface, not a rewrite of it:
 
-1. **`sessionId` + fuller `Header`** — expand v1's `Header` to the v2 shape
-   (`sessionId`, `timestamp`, `sequenceNumber`, `payloadSize`, `checksum`),
-   bump `layoutVersion`, add the CRC32 checksum function (see "Checksum:
-   algorithm and scope" and "Wire format" in Part I).
+1. **`sessionId` + fuller `Header`** — v2 shape (`sessionId`, `timestamp`,
+   `sequenceNumber`, `payloadSize`, `checksum`), bump `layoutVersion`, add
+   CRC32 (see "Checksum: algorithm and scope" and "Wire format" in Part I).
 2. **`IPayloadGenerator` interface** — extract v1's inline payload
-   construction into an `IPayloadGenerator` interface with
-   `RandomPayloadGenerator` as its first implementation (see Part II's
-   "Explicitly deferred" below for why this waited until v2).
-3. **Lifecycle state machine + ownership metadata** — add `state`,
-   `layoutVersion`, producer-PID fields to the control block; implement the
-   `Initializing`→`Ready`→`Stopping`→`Closed` transitions; add stale-segment
-   detection/recreation on producer startup (see "Lifecycle and ownership"
-   in Part I).
-4. **Bounded wait + rich result enums** — replace v1's blind `sem_wait`
-   with bounded `sem_timedwait`; add `SendResult`/`ReceiveResult`; add the
-   producer-PID liveness check and `PeerClosed`; add the `Malformed`
-   result and the `availableMessages`-post on every lifecycle transition
-   for `EndOfStream` (see "Waking a blocked `send()`/`receive()`",
-   "Malformed-frame policy", and "Clean producer shutdown and the receive
-   predicate" in Part I).
-5. **`common::Controller` + control input** — `Running/Paused/Stopped`
-   state, stdin thread (`p`/`r`/`q`), signal handling via self-pipe or
-   `sigwait()` (see "Control loop and signal safety" in Part I).
+   construction, `RandomPayloadGenerator` as first implementation.
+3. **Lifecycle state machine + ownership metadata** — `state`,
+   `layoutVersion`, producer-PID fields; `Initializing→Ready→Stopping→Closed`
+   transitions; stale-segment detection/recreation (see "Lifecycle and
+   ownership" in Part I).
+4. **Bounded wait + rich result enums** — `sem_timedwait`,
+   `SendResult`/`ReceiveResult`, PID liveness/`PeerClosed`, `Malformed`,
+   the `availableMessages`-post for `EndOfStream` (see "Waking a blocked
+   `send()`/`receive()`" in Part I).
+5. **`common::Controller` + control input** — `Running/Paused/Stopped`,
+   stdin thread, signal handling via self-pipe or `sigwait()` (see "Control
+   loop and signal safety" in Part I).
 6. **`PacketValidator` + `StatsReporter`** — checksum recomputation,
-   session-ID-aware sequence checking, `errorCount`; cumulative/interval
-   counters with a monotonic-clock ticker (see "Defect handling" in Part I
-   and Part III's build order below).
+   session-ID-aware sequence checking, `errorCount`, cumulative/interval
+   counters on a monotonic-clock ticker.
 7. **Runtime `--payload-size`/`--ring-capacity` flags** — replace v1's
-   compile-time `Config` constants with CLI-parsed values, validated at
-   startup.
-8. **Consumer-starts-first retry/backoff** — replace v1's single blocking
-   attach with the indefinite-retry-with-logging loop described in "Attach
-   retries" in Part I.
-
-Each v2 step should still be kept reasonably small for review, though v2's
-steps don't need to hit v1's 100–200 line target as precisely — v2 is
-documented scope for the next phase of work, not an imminent line-by-line
-plan the way v1's steps are.
+   compile-time `Config` constants with validated CLI values.
+8. **Consumer-starts-first retry/backoff** — indefinite-retry-with-logging
+   loop (see "Attach retries" in Part I).
 
 #### v3 build order
 
 Purely internal — no producer- or consumer-visible API change from v2:
 
-1. **Cross-process atomics for cursors** — replace the plain-integer,
-   mutex-protected cursors with `std::atomic<uint64_t>`, `alignas(64)`
-   cache-line separation, and the `is_always_lock_free` compile-time
-   requirement (see "Cross-process atomics: an explicit platform
-   requirement" in Part I).
-2. **Lock-free fast path** — remove `cursorMutex` from `send()`/`receive()`'s
-   cursor claim entirely; blocking itself is unaffected, since it was
-   already handled by `freeSlots`/`availableMessages` at every iteration,
-   not by the mutex (see "v3: lock-free fast path" in Part I).
-3. **Release/acquire publication rules** — implement the
-   publication/consumption memory-ordering rules for both the cursors and
-   the (already-atomic-since-v2) lifecycle `state` field (see "Cursor
-   synchronization model" and "Lifecycle state machine" in Part I).
-No separate cross-process atomic visibility smoke test is built — see
-"Cross-process atomic visibility" in "Testing strategy" above for why the
-compile-time `is_always_lock_free` check alone is sufficient on this
-project's supported platforms. (No missed-notification acceptance step is
-needed either way: unlike a condvar-based fast path, the
-`freeSlots`/`availableMessages` semaphores cannot lose a notification
-regardless of whether the cursor claim is mutex-protected or lock-free —
-see "v3: lock-free fast path" in Part I.)
+1. **Cross-process atomics for cursors** — `std::atomic<uint64_t>`,
+   `alignas(64)` cache-line separation, `is_always_lock_free` requirement
+   (see "Cross-process atomics" in Part I).
+2. **Lock-free fast path** — remove `cursorMutex` from the cursor claim
+   entirely; blocking is unaffected, already handled by the semaphores at
+   every iteration.
+3. **Release/acquire publication rules** — for both cursors and the
+   already-atomic-since-v2 `state` field (see "Cursor synchronization
+   model" and "Lifecycle state machine" in Part I).
+
+No separate cross-process atomic visibility smoke test — see
+"Cross-process atomic visibility" in "Testing strategy" above.
 
 #### Explicitly deferred (producer)
 
@@ -2116,26 +1774,16 @@ see "v3: lock-free fast path" in Part I.)
 - Any transport beyond shared memory.
 - Multi-consumer fan-out (broadcast vs. per-consumer queue) — 1:1 at every
   planned iteration.
-- **Zero-copy borrowed slots** — an RAII-scoped borrowed-view API (as
-  opposed to the earlier rejected manual `release()` design — see
-  "`send()`/`receive()` contract" in Part I) is a valid future optimization
-  once the copying version through v3 is proven correct. Not attempted at
-  any currently-planned iteration.
-- **Richer error propagation beyond `SendResult`/`ReceiveResult`, in v2** —
-  the wake-on-shutdown mechanism in "Waking a blocked `send()`/`receive()`"
-  (Part I) (bounded `sem_timedwait` + `Controller` state check, plus a
-  producer-PID liveness check on the `receive()` side only) is wired
-  through `ITransport`'s `SendResult`/`ReceiveResult` enums — that part is
-  in scope for v2, not deferred, **but the two enums are not symmetric**:
-  `SendResult` has only `Sent`/`Stopped` (no `PeerClosed` — see "Crash
-  recovery scope" for why), `ReceiveResult` has all five
-  (`Received`/`Stopped`/`PeerClosed`/`Malformed`/`EndOfStream`). OS-level
-  and protocol failures are handled too, but outside these enums entirely —
-  see "Fatal-error policy" (Part I): both are fatal (log, exit non-zero),
-  not routed through a result type at all. What *is* deferred beyond v3:
-  adding consumer-liveness tracking so `send()` could gain its own
-  `PeerClosed`, richer diagnostics (e.g. distinguishing *why* a peer is
-  gone), and retry/backoff policy exposed to the caller.
+- **Zero-copy borrowed slots** — an RAII-scoped borrowed-view API is a
+  valid future optimization once the copying version through v3 is proven
+  correct (see "`send()`/`receive()` contract" in Part I). Not attempted
+  at any currently-planned iteration.
+- **Beyond v3:** consumer-liveness tracking so `send()` could gain its own
+  `PeerClosed`, richer diagnostics distinguishing *why* a peer is gone, and
+  caller-exposed retry/backoff policy. Note `SendResult`/`ReceiveResult`
+  are already asymmetric within v2 itself — `SendResult` has no
+  `PeerClosed` (see "Crash recovery scope" in Part I) — this item is about
+  going further, not fixing that asymmetry.
 
 #### v1 Definition of done (producer)
 
@@ -2155,51 +1803,35 @@ holds, not just a manual check.
 
 #### v2 Definition of done (producer)
 
-`./producer-cli --payload-size 1024` runs, writes framed messages
-(header + payload) into shared memory at a steady rate, responds to
-`p`/`r`/`q` and `SIGINT`, exits cleanly with 0 (including a clean thread
-join, not a stuck stdin read). Blocks (does not drop) when the consumer is
-paused and the ring is full. Correctly recreates the segment and both
-semaphores after a prior crash (stale, no live PID) and refuses to start if
-a live producer already owns them. Reaches `Closed` and unlinks on clean
-shutdown, posting `availableMessages` on both the `Stopping` and `Closed`
-transitions (per "Clean producer shutdown and the receive predicate" in
-Part I — this is what actually guarantees promptness, not merely makes it
-likely: `sem_post`'s cumulative guarantee holds regardless of whether the
-cursor claim is mutex-protected (v1/v2) or lock-free (v3), so there is no
-special-casing needed here at any iteration) so a consumer blocked in
-`receive()` at that moment is guaranteed to wake on it, not just
-eventually via the next bounded-wait timeout (verified by blocking a
-consumer's `receive()` on an empty ring, then quitting the producer, and
-asserting the consumer observes `EndOfStream` promptly rather than only
-after the bound elapses). A `send()` blocked on a full ring wakes and
-returns within the bounded-wait window (not stuck forever) on **local**
-shutdown (`q`/`SIGINT` → `Controller` reaches `Stopped`) — per "Crash
-recovery scope" in Part I, a `send()` blocked because the consumer quit or
-crashed does **not** wake on its own; `SendResult` has no `PeerClosed`
-case, so this is explicitly not something this definition of done claims.
-Generates a fresh `sessionId` each run and stamps it into every message, so
-a restarted producer against a newly-attached consumer is distinguishable
-from data loss (verified in Part III's v2 definition of done — per "Crash
-recovery scope" in Part I, this covers restart-then-reattach, not restart
-against a consumer that stayed attached across the crash).
+`./producer-cli --payload-size 1024` runs, writes framed messages into
+shared memory at a steady rate, responds to `p`/`r`/`q` and `SIGINT`,
+exits cleanly with 0 (clean thread join, not a stuck stdin read). Blocks
+(does not drop) when the consumer is paused and the ring is full.
+Correctly recreates the segment/semaphores after a prior crash (stale, no
+live PID) and refuses to start if a live producer already owns them.
+Reaches `Closed` and unlinks on clean shutdown, posting `availableMessages`
+on both `Stopping` and `Closed` transitions, so a consumer blocked in
+`receive()` at that moment is guaranteed to wake promptly, not just
+eventually via timeout (verified by blocking a consumer's `receive()` on
+an empty ring, quitting the producer, asserting prompt `EndOfStream`). A
+`send()` blocked on a full ring wakes within the bounded-wait window on
+**local** shutdown only — per "Crash recovery scope" in Part I,
+`SendResult` has no `PeerClosed`, so a `send()` blocked because the
+consumer quit or crashed does **not** wake on its own. Generates a fresh
+`sessionId` each run so a restarted producer against a newly-attached
+consumer is distinguishable from data loss (verified in Part III's v2
+definition of done; covers restart-then-reattach only, not a consumer that
+stayed attached across the crash).
 
 #### v3 Definition of done (producer)
 
-Identical externally-observable behavior to v2's definition of done above
-— v3 changes no producer-visible API or CLI surface — but internally:
-`send()` no longer takes `cursorMutex` at all (verified by profiling or
-instrumentation showing zero lock acquisitions on the fast path — unlike
-the v1/v2 baseline, which already limited the mutex to the cursor
-claim rather than the whole call, v3 removes it from that path entirely);
-cursors are confirmed lock-free via `is_always_lock_free` at compile time
-on both macOS and Linux — see "Cross-process atomic visibility" in Part I's
-"Testing strategy" for why no separate runtime smoke test is needed on top
-of that. There is no missed-notification scenario to induce or
-recover from at this iteration — the `freeSlots`/`availableMessages`
-semaphores' no-lost-post guarantee holds independent of whether the
-cursor claim is mutex-protected or lock-free (see "v3: lock-free fast
-path" in Part I).
+Identical externally-observable behavior to v2's — no producer-visible API
+or CLI change — but internally: `send()` no longer takes `cursorMutex` at
+all (verified by profiling showing zero lock acquisitions on the fast
+path); cursors confirmed lock-free via `is_always_lock_free` at compile
+time on both macOS and Linux. No missed-notification scenario to induce or
+recover from — the semaphores' no-lost-post guarantee holds independent of
+whether the cursor claim is mutex-protected or lock-free.
 
 ### Part III: Consumer Implementation Plan
 
@@ -2273,69 +1905,26 @@ exits non-zero. No `PacketValidator`, no `errorCount`, no result enum.
 Layered on top of v1's receive loop:
 
 1. **`common::ITransport` reuse with bounded wait** — consumer opens the
-   same `SharedMemoryTransport` ring (open-existing instead of create).
-   `receive()` now blocks on "message available" using the bounded
-   `sem_timedwait` wake pattern from "Waking a blocked `send()`/`receive()`"
-   in Part I, returning `ReceiveResult` (`Received`/`Stopped`/`PeerClosed`/
-   `Malformed`/`EndOfStream`) instead of v1's `bool`.
-
-   Consumer never creates the segment or either semaphore, and never calls
-   `shm_unlink`/`sem_unlink` — producer owns all three. Attach sequence
-   follows "Lifecycle and ownership" (Part I) exactly:
-   - `shm_open` fails `ENOENT` → producer not up yet (consumer may
-     legitimately have started first — see "Either process may start first"
-     in Part I). Retry indefinitely on a bounded backoff (e.g. every
-     100 ms), logging periodically so it's visibly waiting rather than
-     hung; no fixed give-up timeout, since that would misfire on a
-     consumer deliberately started well before its producer. `Ctrl-C` is
-     the escape hatch if that's not what the operator wanted.
-   - `shm_open` succeeds but `state != Ready` → producer still
-     initializing; keep backing off exactly like `ENOENT`.
-   - `state == Ready` → check `layoutVersion` before touching cursors or
-     `Header`; mismatch is reported to `ConsumerApp` as a hard error (see
-     "Fatal-error policy" in Part I), which logs and exits non-zero — not a
-     best-effort read, and not a decision the transport layer makes for
-     itself.
-   - `state == Stopping`/`Closed` mid-run → drain whatever remains in the
-     ring (`receive()` keeps returning `Received` for buffered messages
-     regardless of `state` — see "Clean producer shutdown and the receive
-     predicate" in Part I), then `receive()` returns `EndOfStream` once the
-     ring is actually empty; exit on `EndOfStream`, not as an error.
-2. **`PacketValidator`** — given the `Message` populated by `receive()` (its
-   buffer already holds a copy of the slot's bytes — see "Wire format" in
-   Part I):
-   - Recompute CRC32 over header fields (including `sessionId`) + payload,
-     compare to `header.checksum` (see "Checksum: algorithm and scope" in
-     Part I).
-   - Check `header.sessionId` against the last-seen session ID **first**,
-     before any sequence check (see "Session ID: distinguishing restart from
-     loss" in Part I):
-     - Changed → new producer session. Reset `lastSeen` to
-       `header.sequenceNumber`, update the stored `sessionId`, and do **not**
-       flag this message as a defect regardless of what its
-       `sequenceNumber` is — a session change is expected to reset the
-       counter.
-     - Unchanged → proceed to the sequence check below.
-   - Compare `header.sequenceNumber` to `lastSeen + 1`; any gap or
-     out-of-order value **within the same session** is a **defect**, not
-     routine data — the ring is ordered and lossless by construction (see
-     "Defect handling" in Part I).
-   - Compare `header.payloadSize` to actual received byte count. By this
-     point `receive()` has already bound-checked `header.payloadSize`
-     against `Config.payloadSize` before copying anything (see
-     "Malformed-frame policy" in Part I) — a mismatch surviving to here
-     means the transport copied fewer/more bytes than `payloadSize` claimed
-     despite that check passing, i.e. a bug in `SharedMemoryTransport`
-     itself, not a malformed wire frame. Still worth asserting explicitly:
-     it's what catches that class of bug in the automated tests.
-
-   On any defect (checksum mismatch, in-session sequence gap/reorder, size
-   mismatch): increment a dedicated atomic `errorCount` — kept separate from
-   the `StatsReporter` counters below — log the specifics (including the
-   `sessionId` it occurred in), and keep consuming (a real change from v1's
-   fail-fast policy — see "Defect handling" in Part I for why v2 relaxes
-   this). No exceptions for bad packets; `errorCount` is what automated
-   tests assert against (see "Testing strategy" in Part I), not a crash.
+   same ring (open-existing, not create). `receive()` blocks via bounded
+   `sem_timedwait` (see "Waking a blocked `send()`/`receive()`" in Part I),
+   returning `ReceiveResult` instead of v1's `bool`. Consumer never
+   creates or unlinks the segment/semaphores — producer owns all three.
+   Attach sequence (see "Lifecycle and ownership" in Part I): `ENOENT` or
+   `state != Ready` → retry indefinitely on bounded backoff, logging
+   periodically; `state == Ready` → check `layoutVersion`, mismatch is a
+   hard error; `state == Stopping`/`Closed` mid-run → keep draining
+   buffered messages, then `EndOfStream` once actually empty.
+2. **`PacketValidator`** — given the `Message` `receive()` populated:
+   recompute CRC32, compare to `header.checksum`; check `sessionId`
+   against last-seen **first** (changed → new session, reset `lastSeen`,
+   not a defect; unchanged → sequence check); compare
+   `header.sequenceNumber` to `lastSeen + 1` (gap/reorder within a session
+   is a defect); assert `header.payloadSize` matches actual received bytes
+   (a mismatch here means a `SharedMemoryTransport` bug, not a malformed
+   frame — `receive()` already bound-checked before copying). On any
+   defect: increment a dedicated atomic `errorCount` (separate from
+   `StatsReporter`), log specifics including `sessionId`, keep consuming
+   (relaxing v1's fail-fast policy — see "Defect handling" in Part I).
 3. **`StatsReporter`** — two separate atomic counter pairs, not one:
    - **Cumulative** (`totalPackets`, `totalBytes`): only ever incremented,
      read for the `total=` figure. Never reset.
@@ -2343,76 +1932,35 @@ Layered on top of v1's receive loop:
      alongside the cumulative counters on each received packet, and
      atomically read-and-reset once per second to compute `pkts/s`/`bytes/s`.
 
-   **`bytes` means complete frame bytes — `sizeof(Header) + payloadSize` per
-   message — not payload bytes alone.** This was previously left undefined.
-   Frame bytes, not payload-only, because `bytes/s` exists to characterize
-   what actually moved through the ring and the copy path (see "Efficiency
-   definition" in Part II — throughput is priority 3): every message costs a
-   full `Header` copy in addition to its payload, on both `send()` and
-   `receive()` (see "`send()`/`receive()` contract" in Part I), so a
-   payload-only count would systematically undercount actual data movement,
-   more so at small `payloadSize` where `Header`'s fixed 32 bytes is a larger
-   fraction of the frame. Increment by `sizeof(Header) + header.payloadSize`
-   per successfully received message (i.e. per `ReceiveResult::Received`) —
-   not per `receive()` call, since `PeerClosed`/`Malformed`/`EndOfStream`
-   moved no frame.
+   **`bytes` means complete frame bytes — `sizeof(Header) + payloadSize`,
+   not payload alone** — every message costs a full `Header` copy too (see
+   "`send()`/`receive()` contract" in Part I), and payload-only would
+   undercount, more so at small `payloadSize`. Increment by
+   `sizeof(Header) + header.payloadSize` per `ReceiveResult::Received` only
+   — `PeerClosed`/`Malformed`/`EndOfStream` moved no frame.
 
    **`pkts/s`/`bytes/s` measures end-to-end application throughput, not a
-   transport-only benchmark — it includes everything on the critical path
-   from producer payload generation through consumer bookkeeping, with
-   nothing excluded.** An earlier version of this document claimed
-   producer-side payload generation was excluded from this measurement,
-   reasoning that `IPayloadGenerator` runs on the producer, not inside the
-   consumer's per-message loop where `StatsReporter` lives, and is
-   therefore "not on the path any consumer-side stats measurement
-   observes." **That reasoning is wrong, and the claim is retracted.**
-   Which *process* executes a piece of work is not the same question as
-   whether that work affects the *rate* being measured: `pkts/s`/`bytes/s`
-   counts messages the consumer actually receives per second, and the
-   consumer can only receive as fast as the producer sends. If
-   `IPayloadGenerator::generate()` is slow, the producer spends more
-   wall-clock time per message before each `send()`, its send rate drops,
-   and the consumer's `receive()` calls — bounded by "message available" —
-   take proportionally longer to unblock. Slower generation shows up
-   directly as lower `pkts/s`/`bytes/s`, exactly as if the slowdown had
-   happened inside the consumer. There is no path that separates "how fast
-   can the consumer read" from "how fast can the producer produce" in this
-   design — there is no read-ahead buffer or decoupling beyond the ring
-   itself, and the ring only smooths short bursts, not a sustained
-   generation slowdown.
-
-   So: this statistic reflects the **whole pipeline** — producer payload
-   generation, producer CRC computation, the transport (`send()`/
-   `receive()`, including the copy and the wait/wake path), consumer CRC
-   recomputation (`PacketValidator`), and consumer bookkeeping
-   (`StatsReporter` itself) — all of it, unavoidably, because it's a
-   measurement of observed message arrival rate, not of any one stage in
-   isolation.
-
-   **A transport-only benchmark, if one is wanted later, is explicitly a
-   different, not-yet-built measurement** — not a reinterpretation of this
-   statistic. It would need: pre-generated or reused payload buffers on the
-   producer side (removing `IPayloadGenerator`'s per-message cost from the
-   timed region), and timing taken narrowly around `send()`/`receive()`
-   calls themselves rather than around the whole consumer loop (removing
-   `PacketValidator`/`StatsReporter` from the timed region on the consumer
-   side too). This is a legitimate future benchmarking addition — see
-   "Add a benchmark suite" in the project's Roadmap (README.md) — not
-   something v2's `StatsReporter` output already provides.
+   transport-only benchmark.** It includes producer payload generation:
+   the consumer can only receive as fast as the producer sends, so a slow
+   `IPayloadGenerator::generate()` shows up directly as lower `pkts/s`,
+   exactly as if the slowdown were inside the consumer — there's no
+   read-ahead buffer decoupling the two beyond the ring's short-burst
+   smoothing. This reflects the whole pipeline (producer generation + CRC,
+   transport copy/wait-wake, consumer CRC + bookkeeping) because it's a
+   measurement of observed arrival rate, not any one stage. A
+   transport-only benchmark is a distinct, not-yet-built measurement (see
+   "Add a benchmark suite" in the project's Roadmap, README.md) — it would
+   need pre-generated payload buffers and timing narrowed to just
+   `send()`/`receive()`.
 
    Reusing one counter for both `total` and the per-second rate doesn't
-   work — resetting it to compute the rate would destroy the running total.
+   work — resetting it would destroy the running total. Read the two
+   interval counters as close together as possible (e.g. a single
+   `exchange` under one lock) — `std::atomic<uint64_t>` makes each
+   individual update safe regardless.
 
-   Read the two interval counters as close together as possible (e.g. swap
-   both via a single `exchange` under one lock, or accept the two atomics
-   may describe very slightly different instants) — the reporter thread
-   doesn't need to synchronize with the receive loop beyond that, since
-   `std::atomic<uint64_t>` makes each individual counter update safe.
-
-   Use a **monotonic clock**, not `sleep_for(1s)` in a loop — `sleep_for`
-   drifts (each iteration's wake time is "last wake + 1s + scheduling
-   slop", so error accumulates across the run). Instead, compute each
-   target wake time from a fixed reference point:
+   Use a **monotonic clock**, not `sleep_for(1s)` in a loop (which drifts).
+   Compute each target wake time from a fixed reference point:
    ```cpp
    auto next = std::chrono::steady_clock::now();
    while (running) {
@@ -2482,39 +2030,26 @@ v1 completion criterion, not a manual demo.
 
 #### v2 Definition of done (consumer)
 
-`./consumer-cli` attaches to the producer's shared-memory segment, prints one
-stats line per second (`total`, `pkts/s`, `bytes/s`) with the cumulative and
-interval counters kept separate and the ticker driven by a monotonic clock
-(no visible drift over a multi-minute run). Any checksum failure, sequence
-gap, or reorder increments `errorCount` and logs without crashing; a clean
-run has `errorCount == 0`. Responds to `p`/`r`/`q` and `SIGINT`/`SIGTERM` with
-a clean exit (stdin thread actually joins, signal never calls `Controller`
-from handler context). Pausing it blocks the producer (verified by running
-both and confirming producer's send-side stalls, not drops, while paused).
-Started before the producer, it retries with backoff instead of failing;
-started against a mismatched `layoutVersion`, it exits non-zero with a clear
-message; it drains and exits cleanly on `ReceiveResult::EndOfStream` once
-the ring is empty and the producer has reached `Stopping`/`Closed` — per
-"Clean producer shutdown and the receive predicate" in Part I, a
-`receive()` blocked at the moment the producer transitions is woken
-promptly by the producer's own post on that transition (unconditionally,
-per `sem_post`'s cumulative guarantee — not left to notice only on the
-next bounded-wait timeout). A `receive()` blocked on an empty ring wakes
-within the bounded-wait window when the producer is killed mid-block, and
-reaches its PID-liveness check unconditionally (per "Crash recovery scope"
-in Part I, this no longer depends on the crash timing the way an orphaned
-condvar-mutex would have) — but whether it can then return `PeerClosed`
-still depends on completing the subsequent cursor claim, which remains
-best-effort: a kill that orphans `cursorMutex` specifically (a narrow
-window around the cursor increment, not the whole call) leaves that step
-blocked, with no bounded escape at any currently-planned iteration through
-v2. Where the bounded wake *does* occur, this consumer instance is expected
-to exit, not stay attached across the restart. A **new** consumer started
-after the producer restarts (new
-`sessionId`, `sequenceNumber` reset to 0) does **not** increment
-`errorCount` on its first message — verified by asserting on a real
-producer-restart run that the new consumer's first message is accepted
-without a logged defect.
+`./consumer-cli` attaches to the producer's segment, prints one stats line
+per second (`total`, `pkts/s`, `bytes/s`, cumulative/interval kept
+separate, monotonic-clock ticker, no visible drift over a multi-minute
+run). Any checksum failure, sequence gap, or reorder increments
+`errorCount` and logs without crashing; a clean run has `errorCount == 0`.
+Responds to `p`/`r`/`q` and `SIGINT`/`SIGTERM` with a clean exit (stdin
+thread joins, signal never calls `Controller` from handler context).
+Pausing it blocks the producer. Started before the producer, retries with
+backoff; started against a mismatched `layoutVersion`, exits non-zero;
+drains and exits cleanly on `EndOfStream` once the ring is empty and the
+producer reached `Stopping`/`Closed` — a `receive()` blocked at that
+moment wakes promptly on the producer's own post, unconditionally. A
+`receive()` blocked on an empty ring wakes within the bounded-wait window
+when the producer is killed, reaching its PID-liveness check
+unconditionally — but whether it then returns `PeerClosed` remains
+best-effort (a kill that orphans `cursorMutex` mid-increment leaves the
+subsequent cursor claim blocked, no bounded escape through v2; see "Crash
+recovery scope" in Part I). A **new** consumer started after the producer
+restarts does **not** increment `errorCount` on its first message despite
+`sequenceNumber` resetting, because `sessionId` changed.
 
 #### v3 Definition of done (consumer)
 
