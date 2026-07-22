@@ -365,28 +365,27 @@ requirement itself; `is_lock_free()` would only tell you about one already-
 constructed object, checked too late and too narrowly for a property the
 whole design depends on universally.
 
-**Verification, not just assertion:** the `static_assert` catches "does this
-type use a lock internally," but not the more specific cross-process
-question — "does a release-store in one process's mapping become visible,
-via an acquire-load, in a *different* process's mapping of the same
-physical pages." Standard `std::atomic` is specified in terms of the C++
-memory model, which is defined over a single program's threads; nothing in
-the standard explicitly extends its guarantees across process boundaries,
-even though a lock-free atomic is, in practice, implemented as a plain CPU
-load/store/RMW instruction with no process-local state, which does work
-across shared physical pages on every mainstream platform. This project
-does not rest on "in practice" alone — the same empirical-verification
-standard already applied to `PTHREAD_PROCESS_SHARED` above applies here:
-
-- **macOS and Linux**: extend the existing `fork()`-based smoke test (see
-  "Cross-platform verification" above) with a second case — a
-  `std::atomic<uint64_t>` placed in the same `shm_open`/`mmap` segment,
-  release-stored by the parent after `fork()`, acquire-loaded in a busy-poll
-  loop by the child (bounded, with a timeout, not an infinite spin) — assert
-  the child observes the parent's value promptly. This is a cheap addition
-  to a smoke test that already exists for the pthread primitives, not a new
-  piece of test infrastructure. To be added alongside the pthread smoke test
-  in "Testing strategy" below, as part of v3.
+**Why the `static_assert` alone is accepted as sufficient — no separate
+runtime cross-process test.** The `static_assert` catches "does this type
+use a lock internally," which is distinct in principle from the more
+specific cross-process question — "does a release-store in one process's
+mapping become visible, via an acquire-load, in a *different* process's
+mapping of the same physical pages." Standard `std::atomic` is specified in
+terms of the C++ memory model, which is defined over a single program's
+threads; nothing in the standard explicitly extends its guarantees across
+process boundaries. An earlier version of this document treated that gap
+as requiring its own `fork()`-based release-store/acquire-load runtime
+smoke test, alongside the `PTHREAD_PROCESS_SHARED` smoke test. That runtime
+test was built, then deliberately removed (see "Cross-process atomic
+visibility" in "Testing strategy" below): a lock-free atomic is, in
+practice, implemented as a plain CPU load/store/RMW instruction with no
+process-local state, and that implementation works across shared physical
+pages on every mainstream platform this project targets — unlike
+`PTHREAD_PROCESS_SHARED`, which has a documented history of being
+unsupported or stubbed on a real target platform (see "Cross-platform
+verification" above, macOS's `sem_init()`), there is no comparable platform
+risk here to justify the added CI surface. `is_always_lock_free` is treated
+as sufficient on its own.
 
 #### Pause semantics (cross-process) — **[v1]**
 
@@ -1849,16 +1848,22 @@ there's no value in writing a corruption test against v1's minimal
 **v2/v3 automated coverage** (added once the corresponding iteration's
 features exist):
 
-- **Cross-process atomic visibility smoke test — [v3]** — the release-store
-  (parent) / acquire-load (child) `std::atomic<uint64_t>`-in-shared-memory
-  check described in "Cross-process atomics: an explicit platform
-  requirement" above, run on both macOS and the `ubuntu-26.04` CI runner.
-  Paired with the compile-time `is_always_lock_free` `static_assert` in the
-  same section — the runtime test catches what the compile-time check
-  can't (actual cross-process visibility), the compile-time check catches
-  what the runtime test shouldn't have to (a platform that silently
-  compiles a lock-based fallback). Not meaningful before v3 introduces the
-  atomics it's testing.
+- **Cross-process atomic visibility — [v3], covered by static assertion
+  only, no runtime smoke test.** An earlier version of this document
+  called for a `fork()`-based release-store (parent) / acquire-load
+  (child) `std::atomic<uint64_t>`-in-shared-memory runtime check, on the
+  reasoning that the compile-time `is_always_lock_free` `static_assert` in
+  "Cross-process atomics: an explicit platform requirement" above proves
+  the type has no internal lock but says nothing about actual cross-process
+  visibility. That runtime test was implemented, then deliberately removed:
+  on every mainstream platform this project targets, a lock-free
+  `std::atomic` is implemented as a plain CPU load/store/RMW instruction
+  with no process-local state, so `is_always_lock_free` already rules out
+  the one failure mode (an internal, process-local fallback lock) that
+  would make cross-process visibility fail while single-process visibility
+  holds. The runtime test added CI cost and complexity to catch a platform
+  behavior no supported target actually exhibits. Verification therefore
+  rests on the compile-time `is_always_lock_free` `static_assert` alone.
 - **Shutdown — [v2]** — assert stdin thread and signal path both actually
   cause clean process exit (join, not force-kill) under `SIGINT`/`SIGTERM`
   and the `q` keypress, from each of `Running`/`Paused` state.
@@ -2087,13 +2092,14 @@ Purely internal — no producer- or consumer-visible API change from v2:
    publication/consumption memory-ordering rules for both the cursors and
    the (already-atomic-since-v2) lifecycle `state` field (see "Cursor
    synchronization model" and "Lifecycle state machine" in Part I).
-4. **Cross-process atomic visibility smoke test** — the `fork()`-based
-   release-store/acquire-load test described in "Cross-process atomics"
-   above, added to CI on both macOS and Linux. (No missed-notification
-   acceptance step is needed here: unlike a condvar-based fast path, the
-   `freeSlots`/`availableMessages` semaphores cannot lose a notification
-   regardless of whether the cursor claim is mutex-protected or lock-free
-   — see "v3: lock-free fast path" in Part I.)
+No separate cross-process atomic visibility smoke test is built — see
+"Cross-process atomic visibility" in "Testing strategy" above for why the
+compile-time `is_always_lock_free` check alone is sufficient on this
+project's supported platforms. (No missed-notification acceptance step is
+needed either way: unlike a condvar-based fast path, the
+`freeSlots`/`availableMessages` semaphores cannot lose a notification
+regardless of whether the cursor claim is mutex-protected or lock-free —
+see "v3: lock-free fast path" in Part I.)
 
 #### Explicitly deferred (producer)
 
@@ -2187,8 +2193,9 @@ instrumentation showing zero lock acquisitions on the fast path — unlike
 the v1/v2 baseline, which already limited the mutex to the cursor
 claim rather than the whole call, v3 removes it from that path entirely);
 cursors are confirmed lock-free via `is_always_lock_free` at compile time
-and the cross-process atomic visibility smoke test passes in CI on both
-macOS and Linux. There is no missed-notification scenario to induce or
+on both macOS and Linux — see "Cross-process atomic visibility" in Part I's
+"Testing strategy" for why no separate runtime smoke test is needed on top
+of that. There is no missed-notification scenario to induce or
 recover from at this iteration — the `freeSlots`/`availableMessages`
 semaphores' no-lost-post guarantee holds independent of whether the
 cursor claim is mutex-protected or lock-free (see "v3: lock-free fast
