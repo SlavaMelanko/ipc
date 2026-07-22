@@ -30,7 +30,7 @@ without changing `ITransport`'s public shape:
 - [x] **v2 — robustness and observability.** Interactive control, signal
       handling, checksums, `sessionId`, crash recovery, stats reporting,
       richer result types.
-- [ ] **v3 — performance.** Lock-free cross-process atomics, mutex off the
+- [x] **v3 — performance.** Lock-free cross-process atomics, mutex off the
       per-message fast path — no producer/consumer-visible API change.
 - [ ] Evaluate additional transport implementations
 

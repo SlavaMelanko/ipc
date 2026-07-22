@@ -604,36 +604,48 @@ This subsection describes the v3 upgrade over the v1 baseline above; it is
   cursor claim as well, so nothing on the `send()`/`receive()` fast path
   takes a lock at all; the mutex simply has no remaining job once cursors
   are atomics.
-- **Publication rule — when a written slot becomes visible.** The producer
-  writes the full slot (header + payload bytes) *before* it stores the
-  incremented write cursor, and that store uses `std::memory_order_release`.
-  The consumer loads the write cursor with `std::memory_order_acquire`
-  before reading any slot bytes. This release/acquire pair is what makes
-  the slot's contents visible to the consumer's read — without it, the
-  consumer could observe the new cursor value while still seeing stale or
-  torn slot bytes, since cursor and slot are otherwise independent memory
-  locations with no ordering guarantee between them. A written slot is
-  "visible" exactly when the consumer's acquire-load of the write cursor
-  observes the producer's release-store.
-- **Consumption rule — when a consumed slot becomes reusable.** Symmetric:
-  the consumer finishes reading the slot *before* it stores the incremented
-  read cursor with `memory_order_release`; the producer loads the read
-  cursor with `memory_order_acquire` before treating that slot as free to
-  overwrite. A slot is safe for the producer to reuse exactly when its
-  acquire-load of the read cursor observes the consumer's release-store
-  advancing past it — never before, or the producer could overwrite a slot
-  the consumer is still mid-read on.
-- **No concurrent access to the same slot.** Given the two rules above, the
-  producer only ever writes a slot after its acquire-load of the read
-  cursor shows the consumer is done with it, and the consumer only ever
-  reads a slot after its acquire-load of the write cursor shows the
-  producer finished writing it. The two processes never touch the same
-  slot at the same time — this is what the cursor discipline is *for*, not
-  an incidental property. (In v1/v2, the cursor mutex provides this same
-  guarantee more simply, by serializing the cursor claim rather than by
-  ordered atomics; the semaphores' own accounting — a slot is only
-  claimable once `sem_wait` returns for it — is what prevents concurrent
-  access at every iteration, mutex or atomics alike.)
+- **Each cursor has exactly one reader and one writer, both the same
+  process — the other side never touches it.** `writeCursor` is claimed
+  (`fetch_add`) and read only by the producer; `readCursor` only by the
+  consumer. Neither process ever loads the *other* process's cursor. This
+  is what actually justifies `std::memory_order_relaxed` on both
+  `fetch_add`s: ordering annotations on an atomic exist to constrain what a
+  *different* thread observes around it, and here no other thread or
+  process ever observes this variable at all — there is nothing for
+  `release`/`acquire` to order against. A single-owner counter needs no
+  more ordering guarantee than a plain local variable would, regardless of
+  which process's address space it lives in.
+- **The cross-process fence that actually matters is the semaphore pair,
+  not the cursors.** What must be ordered is "producer's slot write" →
+  "consumer's slot read," and that edge is already established by
+  `sem_post`/`sem_wait` themselves: POSIX guarantees a `sem_post` (release)
+  paired with the `sem_wait`/`sem_timedwait` that observes it (acquire)
+  forms a full memory fence, exactly like `std::memory_order_release`/
+  `_acquire` do. Producer writes the slot, then `sem_post(availableMessages)`;
+  consumer's `sem_wait(availableMessages)` returns, then it reads the slot
+  — the post/wait pair is the publication edge, not the cursor store/load.
+  Symmetric for slot reuse: consumer reads the slot, `sem_post(freeSlots)`;
+  producer's wait on `freeSlots` returning is what makes the slot safe to
+  overwrite. The cursor value itself only ever needs to be correct within
+  its one owning process's program order (compute slot index, then use it
+  to index into the slot array) — ordinary sequential execution already
+  guarantees that, no atomic ordering required beyond what `relaxed`
+  provides (atomicity of the increment itself, so two calls into
+  `AcquireWriteSlot()` from the same process — not a concern here, since
+  each transport instance is used by one thread — wouldn't race).
+- **No concurrent access to the same slot.** The producer only ever writes
+  a slot after its own `sem_wait(freeSlots)` for that slot's turn has
+  returned, which only happens after the consumer's `sem_post(freeSlots)`
+  for that same slot — i.e. after the consumer finished reading it. The
+  consumer only ever reads a slot after its `sem_wait(availableMessages)`
+  has returned, which only happens after the producer's
+  `sem_post(availableMessages)` for that slot — i.e. after the producer
+  finished writing it. The semaphores' own accounting (a slot is only
+  claimable once the matching `sem_wait` returns) is what prevents the two
+  processes from touching the same slot at the same time; this holds
+  identically whether the cursor claim is mutex-protected (v1/v2) or
+  lock-free relaxed atomics (v3) — the cursor mechanism was never what
+  provided this guarantee, in any iteration.
 - **No missed-notification problem to accept, because semaphores don't have
   one.** A classic condition-variable design risks a lost wakeup: a signal
   sent by a notifier that isn't also holding the mutex across its state

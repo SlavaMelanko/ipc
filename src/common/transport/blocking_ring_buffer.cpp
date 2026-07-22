@@ -149,6 +149,9 @@ std::byte* BlockingRingBuffer::AcquireWriteSlot() {
     return nullptr;
   }
 
+  // relaxed: freeSlots_/availableMessages_ sem_wait/sem_post already provide
+  // the cross-process release/acquire fence around the slot bytes -- no
+  // other process ever loads this cursor, so it needs no ordering of its own.
   std::uint64_t writePos = Control().writeCursor.fetch_add(1, std::memory_order_relaxed);
 
   return SlotAt(writePos);
@@ -183,6 +186,8 @@ std::byte* BlockingRingBuffer::AcquireReadSlot() {
     }
   }
 
+  // relaxed: same reasoning as AcquireWriteSlot() -- the semaphores carry
+  // the fence, this cursor is never read cross-process.
   std::uint64_t readPos = Control().readCursor.fetch_add(1, std::memory_order_relaxed);
 
   return SlotAt(readPos);
