@@ -57,13 +57,13 @@ whole-pipeline throughput, not a transport-only benchmark).
 
 | Payload | Count      | Ring Capacity | Avg pkts/s | Avg throughput |
 | ------- | ---------- | ------------- | ---------- | -------------- |
-| 1 KB    | 10,000,000 | 32 MB         | ~1,307,167 | ~1.38 GB/s     |
-| 4 KB    | 5,000,000  | 32 MB         | ~543,666   | ~2.24 GB/s     |
-| 8 KB    | 2,500,000  | 32 MB         | ~337,644   | ~2.78 GB/s     |
-| 16 KB   | 1,000,000  | 32 MB         | ~195,357   | ~3.21 GB/s     |
-| 32 KB   | 1,000,000  | 32 MB         | ~101,928   | ~3.34 GB/s     |
-| 64 KB   | 1,000,000  | 32 MB         | ~53,456    | ~3.51 GB/s     |
+| 1 KB    | 10,000,000 | 32 MB         | ~1,428,571 | ~1.51 GB/s     |
+| 4 KB    | 5,000,000  | 32 MB         | ~550,648   | ~2.27 GB/s     |
+| 8 KB    | 2,500,000  | 32 MB         | ~343,815   | ~2.83 GB/s     |
+| 16 KB   | 1,000,000  | 32 MB         | ~196,066   | ~3.22 GB/s     |
+| 32 KB   | 1,000,000  | 32 MB         | ~101,951   | ~3.34 GB/s     |
+| 64 KB   | 1,000,000  | 32 MB         | ~53,641    | ~3.52 GB/s     |
 
 The Ryzen machine is consistently faster than the M4 at every payload
-size tested (~1.4–2.1x), attributed to hardware (faster CPU/memory
+size tested (~1.4–2.2x), attributed to hardware (faster CPU/memory
 subsystem) rather than a code difference — both runs use the same build.
