@@ -10,12 +10,12 @@
 
 namespace ipc::consumer {
 
-// Prints one "total=<n> pkts/s=<n> throughput=<value><unit>" line per second
+// Prints one "total=<n> msgs/s=<n> throughput=<value><unit>" line per second
 // on a dedicated thread, driven by a steady_clock reference point rather than
 // repeated sleep_for(1s) (which drifts -- see AGENTS.md's StatsReporter
 // section). Cumulative and interval counters are separate atomic pairs:
 // resetting one to compute a rate must never disturb the running total.
-// total/pkts/s are printed with thousands separators via std::format's
+// total/msgs/s are printed with thousands separators via std::format's
 // "{:L}" against the process's environment locale (std::locale("")),
 // falling back to ungrouped digits if that locale can't be constructed
 // (e.g. an unconfigured LANG on a minimal machine) rather than letting the
@@ -38,9 +38,9 @@ class StatsReporter {
  private:
   void Run();
 
-  std::atomic<std::uint64_t> totalPackets_ = 0;
+  std::atomic<std::uint64_t> totalMessages_ = 0;
   std::atomic<std::uint64_t> totalBytes_ = 0;
-  std::atomic<std::uint64_t> intervalPackets_ = 0;
+  std::atomic<std::uint64_t> intervalMessages_ = 0;
   std::atomic<std::uint64_t> intervalBytes_ = 0;
 
   std::mutex mutex_;

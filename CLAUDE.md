@@ -137,7 +137,7 @@ being presented as v1's immediate scope:
 - **v2 — robustness and observability.** Layered on top of v1's
   semaphore-backed ring without changing `ITransport`'s public shape or the
   ring's core concept: `Controller`/signal handling/interactive control,
-  `StatsReporter`, checksums and `PacketValidator`, `sessionId`, `PeerClosed`
+  `StatsReporter`, checksums and `MessageValidator`, `sessionId`, `PeerClosed`
   detection, crash recovery and stale-segment handling, configurable
   payload/ring-capacity, malformed-frame handling, and the richer
   `SendResult`/`ReceiveResult` enums this document already specifies in full
@@ -391,7 +391,7 @@ hasn't started yet or is slower than the producer), the producer **blocks**
 - Consumer stops draining the shared-memory ring.
 - Ring fills up.
 - Producer's `send()` blocks on the `freeSlots` named semaphore (the "slot
-  free" signal described above) — no busy-wait, no dropped packets.
+  free" signal described above) — no busy-wait, no dropped messages.
 - Producer resumes automatically once the consumer resumes and drains.
 
 Rationale: single-reader case, so there's no "slowest consumer" tradeoff to
@@ -414,9 +414,9 @@ runtime-configurable `payloadSize`/`ringCapacityBytes`) are **[v2]** and are
 marked as such.
 
 - **Bounded SPSC ring buffer** — single producer, single consumer (matches
-  the 1:1 v1 scope). Producer appends packets at the **tail** (its write
+  the 1:1 v1 scope). Producer appends messages at the **tail** (its write
   cursor) continuously, with no per-message wait for the consumer; consumer
-  reads from the **head** (its read cursor) one packet at a time. Producer
+  reads from the **head** (its read cursor) one message at a time. Producer
   only blocks when it has caught up to the consumer and the ring is
   genuinely full — not on every send. **[v1]**
 
@@ -511,7 +511,7 @@ marked as such.
   in the ring, wraparound math, or the wire format), not expected operating
   data. **[v1]** v1's fail-fast policy (see "v1 error handling" below) treats
   any such gap as an immediate hard error; v2 adds the fuller
-  `PacketValidator`/`errorCount`/keep-consuming policy — see "Defect
+  `MessageValidator`/`errorCount`/keep-consuming policy — see "Defect
   handling" below.
 
 ##### Cursor synchronization model
@@ -933,12 +933,12 @@ Instead, at every iteration:
   directly as a copy length before any check is an out-of-bounds read from
   the slot (and a potential out-of-bounds *write* if the caller's buffer
   was sized to the expected `payloadSize` rather than defensively larger).
-  A v2 `PacketValidator`'s checksum/sequence checks (see Part III) run
+  A v2 `MessageValidator`'s checksum/sequence checks (see Part III) run
   **after** this point and cannot substitute for it — they operate on a
   `Message` that, by their point in the pipeline, has already been fully
   copied; the payloadSize bound-check has to happen inside `receive()`
   itself, before the copy, or it happens too late to matter. **v1** has no
-  `PacketValidator` at all — the bound check inside `receive()` plus a
+  `MessageValidator` at all — the bound check inside `receive()` plus a
   sequence-number check in the consumer loop (see "v1 error handling"
   below) is the entirety of v1's validation, and that's sufficient, since
   the bound check is what actually prevents the unsafe read regardless of
@@ -976,7 +976,7 @@ A frame whose `header.payloadSize` does not equal `Config.payloadSize`
 exact-size, so any mismatch, over *or* under, is a defect, not a shorter
 valid message) is a different class of problem than a checksum mismatch or
 sequence gap (see "Defect handling" below): it isn't safely copyable at
-all, so there is no valid `Message` for `PacketValidator` to inspect and no
+all, so there is no valid `Message` for `MessageValidator` to inspect and no
 meaningful way to "keep consuming and log it" the way an in-bounds-but-
 corrupted frame allows.
 
@@ -1112,7 +1112,7 @@ distinguishing restart from loss" above; the check there runs before this
 one, so this section only applies within a single session:
 
 - Increment a dedicated atomic error counter — **separate from** the normal
-  stats counters (total/interval packet and byte counts; see each plan's
+  stats counters (total/interval message and byte counts; see each plan's
   `StatsReporter` step). Conflating them would corrupt the throughput
   numbers with error events.
 - Log the specific defect (expected vs. actual sequence number, checksum
@@ -1475,7 +1475,8 @@ src/
 │   ├── message/
 │   │   ├── message.h
 │   │   ├── header.h               # build_header(payload, seq) -- v1: seq+size only; v2 adds sessionId/timestamp/checksum
-│   │   └── checksum.h             # crc32() over header fields + payload -- [v2]
+│   │   ├── checksum.h             # crc32() over header fields + payload -- [v2]
+│   │   └── message_validator.{h,cpp}  # checksum + sequence-gap detection, error counter -- [v2]; v1 checks sequence number inline, no separate class
 │   ├── transport/
 │   │   ├── transport.h            # ITransport -- stays here, not under shm/, so a future non-shm transport is a sibling directory, not a rename
 │   │   └── shm/
@@ -1497,7 +1498,6 @@ src/
 └── consumer/
     ├── consumer_app.{h,cpp}
     ├── command_line_parser.{h,cpp}
-    ├── packet_validator.{h,cpp}    # checksum + sequence-gap detection, error counter -- [v2]; v1 checks sequence number inline, no separate class
     ├── stats_reporter.{h,cpp}      # 1s ticker: cumulative + interval counters, monotonic clock -- [v2] -- does not exist in v1
     └── consumer_main.cpp
 ```
@@ -1679,7 +1679,7 @@ yet build:
   measurement** — v1 has no dedicated stats thread; a final message count
   printed once at the end (see "v1 Definition of done" below) is enough to
   prove correctness. See Part III's `StatsReporter` build step — **[v2]**.
-- **No CRC32, no `PacketValidator`** — v1's only per-message check is the
+- **No CRC32, no `MessageValidator`** — v1's only per-message check is the
   sequence-number continuity check, done inline in the consumer loop. See
   "Checksum: algorithm and scope" and "Defect handling" in Part I —
   **[v2]**.
@@ -1747,7 +1747,7 @@ around/inside the same interface, not a rewrite of it:
 5. **`common::Controller` + control input** — `Running/Paused/Stopped`,
    stdin thread, signal handling via self-pipe or `sigwait()` (see "Control
    loop and signal safety" in Part I).
-6. **`PacketValidator` + `StatsReporter`** — checksum recomputation,
+6. **`MessageValidator` + `StatsReporter`** — checksum recomputation,
    session-ID-aware sequence checking, `errorCount`, cumulative/interval
    counters on a monotonic-clock ticker.
 7. **Runtime `--payload-size`/`--ring-capacity` flags** — replace v1's
@@ -1854,14 +1854,14 @@ Part II for the producer side.
 
 #### Responsibilities
 
-1. Receive packets from the producer via `ITransport`. **[v1]**
-2. Validate each packet: v1 checks sequence-number continuity inline (see
+1. Receive messages from the producer via `ITransport`. **[v1]**
+2. Validate each message: v1 checks sequence-number continuity inline (see
    "v1 error handling" below); v2 adds full checksum recomputation and
-   `sessionId`-aware loss/reorder detection via `PacketValidator` (see
+   `sessionId`-aware loss/reorder detection via `MessageValidator` (see
    "Defect handling" in Part I).
 3. Print stats: v1 prints a final message count once, at exit (see "v1
    Definition of done" below); v2 adds a periodic once-per-second
-   `StatsReporter` (total packets received, packets/sec, bytes/sec).
+   `StatsReporter` (total messages received, msgs/sec, bytes/sec).
 4. Pause/resume/quit via signals or keypress — **[v2]**, v1 has no
    interactive control at all.
 
@@ -1911,7 +1911,7 @@ Mirrors the producer's v1 steps — each sized to roughly 100–200 lines:
 Same policy as the producer (see "v1 error handling" in Part II): `bool`
 return from `receive()`, `false` means a fatal condition (attach failure or
 an inline sequence-number gap), `ConsumerApp` logs a clear message and
-exits non-zero. No `PacketValidator`, no `errorCount`, no result enum.
+exits non-zero. No `MessageValidator`, no `errorCount`, no result enum.
 
 #### v2 build order
 
@@ -1927,7 +1927,7 @@ Layered on top of v1's receive loop:
    periodically; `state == Ready` → check `layoutVersion`, mismatch is a
    hard error; `state == Stopping`/`Closed` mid-run → keep draining
    buffered messages, then `EndOfStream` once actually empty.
-2. **`PacketValidator`** — given the `Message` `receive()` populated:
+2. **`MessageValidator`** — given the `Message` `receive()` populated:
    recompute CRC32, compare to `header.checksum`; check `sessionId`
    against last-seen **first** (changed → new session, reset `lastSeen`,
    not a defect; unchanged → sequence check); compare
@@ -1939,11 +1939,11 @@ Layered on top of v1's receive loop:
    `StatsReporter`), log specifics including `sessionId`, keep consuming
    (relaxing v1's fail-fast policy — see "Defect handling" in Part I).
 3. **`StatsReporter`** — two separate atomic counter pairs, not one:
-   - **Cumulative** (`totalPackets`, `totalBytes`): only ever incremented,
+   - **Cumulative** (`totalMessages`, `totalBytes`): only ever incremented,
      read for the `total=` figure. Never reset.
-   - **Interval** (`intervalPackets`, `intervalBytes`): incremented
-     alongside the cumulative counters on each received packet, and
-     atomically read-and-reset once per second to compute `pkts/s`/`bytes/s`.
+   - **Interval** (`intervalMessages`, `intervalBytes`): incremented
+     alongside the cumulative counters on each received message, and
+     atomically read-and-reset once per second to compute `msgs/s`/`bytes/s`.
 
    **`bytes` means complete frame bytes — `sizeof(Header) + payloadSize`,
    not payload alone** — every message costs a full `Header` copy too (see
@@ -1952,10 +1952,10 @@ Layered on top of v1's receive loop:
    `sizeof(Header) + header.payloadSize` per `ReceiveResult::Received` only
    — `PeerClosed`/`Malformed`/`EndOfStream` moved no frame.
 
-   **`pkts/s`/`bytes/s` measures end-to-end application throughput, not a
+   **`msgs/s`/`bytes/s` measures end-to-end application throughput, not a
    transport-only benchmark.** It includes producer payload generation:
    the consumer can only receive as fast as the producer sends, so a slow
-   `IPayloadGenerator::generate()` shows up directly as lower `pkts/s`,
+   `IPayloadGenerator::generate()` shows up directly as lower `msgs/s`,
    exactly as if the slowdown were inside the consumer — there's no
    read-ahead buffer decoupling the two beyond the ring's short-burst
    smoothing. This reflects the whole pipeline (producer generation + CRC,
@@ -1987,7 +1987,7 @@ Layered on top of v1's receive loop:
 
    Output:
    ```text
-   total=<n> pkts/s=<n> bytes/s=<n>
+   total=<n> msgs/s=<n> bytes/s=<n>
    ```
 4. **`common::Controller` reuse** — same `Running/Paused/Stopped` class as
    producer. Consumer's "paused" means: stop calling `receive()`/stop
@@ -1997,7 +1997,7 @@ Layered on top of v1's receive loop:
    on quit — see "Control loop and signal safety" in Part I), reused from
    `common/control/`.
 6. **Consumer loop rework** — `receive()` into a reusable `Message` buffer →
-   validate via `PacketValidator` → update stats counters → loop; check
+   validate via `MessageValidator` → update stats counters → loop; check
    controller state each iteration. On `ReceiveResult::EndOfStream` (see
    "Clean producer shutdown and the receive predicate" in Part I), stop
    looping and exit cleanly — this is the expected end of a normal run, not
@@ -2044,7 +2044,7 @@ v1 completion criterion, not a manual demo.
 #### v2 Definition of done (consumer)
 
 `./consumer-cli` attaches to the producer's segment, prints one stats line
-per second (`total`, `pkts/s`, `bytes/s`, cumulative/interval kept
+per second (`total`, `msgs/s`, `bytes/s`, cumulative/interval kept
 separate, monotonic-clock ticker, no visible drift over a multi-minute
 run). Any checksum failure, sequence gap, or reorder increments
 `errorCount` and logs without crashing; a clean run has `errorCount == 0`.

@@ -57,9 +57,9 @@ StatsReporter::~StatsReporter() {
 }
 
 void StatsReporter::RecordMessage(std::size_t frameBytes) {
-  totalPackets_.fetch_add(1, std::memory_order_relaxed);
+  totalMessages_.fetch_add(1, std::memory_order_relaxed);
   totalBytes_.fetch_add(frameBytes, std::memory_order_relaxed);
-  intervalPackets_.fetch_add(1, std::memory_order_relaxed);
+  intervalMessages_.fetch_add(1, std::memory_order_relaxed);
   intervalBytes_.fetch_add(frameBytes, std::memory_order_relaxed);
 }
 
@@ -73,12 +73,12 @@ void StatsReporter::Run() {
       break;
     }
 
-    std::uint64_t packets = intervalPackets_.exchange(0, std::memory_order_relaxed);
+    std::uint64_t messages = intervalMessages_.exchange(0, std::memory_order_relaxed);
     std::uint64_t bytes = intervalBytes_.exchange(0, std::memory_order_relaxed);
-    std::uint64_t total = totalPackets_.load(std::memory_order_relaxed);
+    std::uint64_t total = totalMessages_.load(std::memory_order_relaxed);
 
-    std::println("total={} pkts/s={} throughput={}", FormatWithThousandsSeparator(total),
-                 FormatWithThousandsSeparator(packets), FormatThroughput(bytes));
+    std::println("total={} msgs/s={} throughput={}", FormatWithThousandsSeparator(total),
+                 FormatWithThousandsSeparator(messages), FormatThroughput(bytes));
   }
 }
 

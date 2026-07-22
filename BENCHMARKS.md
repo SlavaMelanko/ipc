@@ -2,8 +2,8 @@
 
 Informal throughput measurements from manual runs, not an automated
 benchmark suite. Numbers come from `StatsReporter`'s per-second
-`total`/`pkts/s`/`bytes/s` output, averaged across the interval lines of
-each run (see `CLAUDE.md`'s note on `pkts/s`/`bytes/s` measuring
+`total`/`msgs/s`/`bytes/s` output, averaged across the interval lines of
+each run (see `CLAUDE.md`'s note on `msgs/s`/`bytes/s` measuring
 whole-pipeline throughput, not a transport-only benchmark).
 
 ## Setup
@@ -44,7 +44,7 @@ whole-pipeline throughput, not a transport-only benchmark).
 
 ### Apple M4, macOS (Darwin 25.2.0, arm64)
 
-| Payload | Count     | Ring Capacity | Avg pkts/s | Avg throughput |
+| Payload | Count     | Ring Capacity | Avg msgs/s | Avg throughput |
 | ------- | --------- | ------------- | ---------- | -------------- |
 | 1 KB    | 4,000,000 | 32 MB         | ~657,200   | ~673.0 MB/s    |
 | 4 KB    | 3,000,000 | 32 MB         | ~400,110   | ~1638.8 MB/s   |
@@ -55,7 +55,7 @@ whole-pipeline throughput, not a transport-only benchmark).
 
 ### AMD Ryzen 7 7700X, Ubuntu 26.04 LTS (x86_64)
 
-| Payload | Count      | Ring Capacity | Avg pkts/s | Avg throughput |
+| Payload | Count      | Ring Capacity | Avg msgs/s | Avg throughput |
 | ------- | ---------- | ------------- | ---------- | -------------- |
 | 1 KB    | 10,000,000 | 32 MB         | ~1,428,571 | ~1.51 GB/s     |
 | 4 KB    | 5,000,000  | 32 MB         | ~550,648   | ~2.27 GB/s     |
