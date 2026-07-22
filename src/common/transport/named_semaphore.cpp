@@ -89,7 +89,7 @@ NamedSemaphore::WaitResult NamedSemaphore::WaitFor(std::chrono::milliseconds bou
   struct timespec deadline;
   clock_gettime(CLOCK_REALTIME, &deadline);
   deadline.tv_sec += static_cast<time_t>(bound.count() / 1000);
-  deadline.tv_nsec += static_cast<long>((bound.count() % 1000) * 1000000);
+  deadline.tv_nsec += static_cast<decltype(deadline.tv_nsec)>((bound.count() % 1000) * 1000000);
   if (deadline.tv_nsec >= 1000000000) {
     deadline.tv_nsec -= 1000000000;
     deadline.tv_sec += 1;
