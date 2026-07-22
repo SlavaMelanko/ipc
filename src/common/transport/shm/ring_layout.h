@@ -1,11 +1,11 @@
-#ifndef IPC_COMMON_TRANSPORT_RING_LAYOUT_H_
-#define IPC_COMMON_TRANSPORT_RING_LAYOUT_H_
+#ifndef IPC_COMMON_TRANSPORT_SHM_RING_LAYOUT_H_
+#define IPC_COMMON_TRANSPORT_SHM_RING_LAYOUT_H_
 
 #include <cstddef>
 #include <limits>
 
 #include "common/message/header.h"
-#include "common/transport/control_block.h"
+#include "common/transport/shm/control_block.h"
 
 namespace ipc::common {
 
@@ -45,4 +45,4 @@ constexpr std::size_t SlotCount(std::size_t ringCapacityBytes, std::size_t paylo
 
 }  // namespace ipc::common
 
-#endif  // IPC_COMMON_TRANSPORT_RING_LAYOUT_H_
+#endif  // IPC_COMMON_TRANSPORT_SHM_RING_LAYOUT_H_

@@ -1,4 +1,4 @@
-#include "common/transport/mapped_segment.h"
+#include "common/transport/shm/mapped_segment.h"
 
 #include <fcntl.h>
 #include <sys/mman.h>

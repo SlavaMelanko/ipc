@@ -29,11 +29,11 @@ add_library(common_lib
   src/common/control/stdin_watcher.cpp
   src/common/message/checksum.cpp
   src/common/message/message_validator.cpp
-  src/common/transport/blocking_ring_buffer.cpp
-  src/common/transport/control_block.cpp
-  src/common/transport/mapped_segment.cpp
-  src/common/transport/named_semaphore.cpp
-  src/common/transport/shared_memory_transport.cpp
+  src/common/transport/shm/blocking_ring_buffer.cpp
+  src/common/transport/shm/control_block.cpp
+  src/common/transport/shm/mapped_segment.cpp
+  src/common/transport/shm/named_semaphore.cpp
+  src/common/transport/shm/shared_memory_transport.cpp
   src/common/util/clock.cpp
   src/common/util/process.cpp
 )

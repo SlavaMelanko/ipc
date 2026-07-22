@@ -1,5 +1,5 @@
-#ifndef IPC_COMMON_TRANSPORT_CONTROL_BLOCK_H_
-#define IPC_COMMON_TRANSPORT_CONTROL_BLOCK_H_
+#ifndef IPC_COMMON_TRANSPORT_SHM_CONTROL_BLOCK_H_
+#define IPC_COMMON_TRANSPORT_SHM_CONTROL_BLOCK_H_
 
 #include <atomic>
 #include <cstdint>
@@ -80,4 +80,4 @@ void InitControlBlock(ControlBlock& control, std::int32_t producerPid);
 
 }  // namespace ipc::common
 
-#endif  // IPC_COMMON_TRANSPORT_CONTROL_BLOCK_H_
+#endif  // IPC_COMMON_TRANSPORT_SHM_CONTROL_BLOCK_H_

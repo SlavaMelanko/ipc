@@ -230,7 +230,7 @@ and broken in practice on several platforms). The ring buffer's actual choice,
 and the alternatives it was weighed against:
 
 - **Named POSIX semaphores (chosen, [v1]).** `NamedSemaphore` (see
-  `src/common/transport/named_semaphore.{h,cpp}`) wraps one `sem_open`'d
+  `src/common/transport/shm/named_semaphore.{h,cpp}`) wraps one `sem_open`'d
   semaphore each for `freeSlots` (initialized to `N`, the slot count) and
   `availableMessages` (initialized to `0`) — the standard bounded-buffer
   pattern, modeling exactly the two conditions this ring needs (see
@@ -307,7 +307,7 @@ target is POSIX/macOS-first:
   implements it), but named semaphores are used uniformly on both
   platforms rather than branching the ring's implementation per platform.
 
-`BlockingRingBuffer` (see `src/common/transport/blocking_ring_buffer.{h,cpp}`)
+`BlockingRingBuffer` (see `src/common/transport/shm/blocking_ring_buffer.{h,cpp}`)
 picks **named POSIX semaphores** as the concrete cross-process mechanism,
 realized as the two independent signals — `freeSlots`/`availableMessages` —
 described in "Shared-memory ring layout" below. The in-process `Controller`
@@ -668,7 +668,7 @@ This subsection describes the v3 upgrade over the v1 baseline above; it is
   detection, not to recover from a missed notification, because there is
   no missed-notification case to recover from.
 
-This layout is shared code (`src/common/transport/shared_memory_transport.{h,cpp}`)
+This layout is shared code (`src/common/transport/shm/shared_memory_transport.{h,cpp}`)
 at every iteration — producer and consumer link the same ring implementation,
 one opens/creates it, the other opens the existing segment.
 
@@ -1477,12 +1477,13 @@ src/
 │   │   ├── header.h               # build_header(payload, seq) -- v1: seq+size only; v2 adds sessionId/timestamp/checksum
 │   │   └── checksum.h             # crc32() over header fields + payload -- [v2]
 │   ├── transport/
-│   │   ├── transport.h            # ITransport
-│   │   ├── mapped_segment.{h,cpp}         # raw shm_open/mmap segment ownership
-│   │   ├── named_semaphore.{h,cpp}        # RAII named semaphore (sem_open); not sem_init/pshared -- see "Two distinct sync mechanisms"
-│   │   ├── control_block.{h,cpp}          # cursorMutex (claim-only) + write/read cursors; mutex-protected in v1/v2, lock-free atomics in v3
-│   │   ├── blocking_ring_buffer.{h,cpp}   # owns MappedSegment + two NamedSemaphores; slot acquire/commit
-│   │   └── shared_memory_transport.{h,cpp}  # ITransport impl: message framing over BlockingRingBuffer
+│   │   ├── transport.h            # ITransport -- stays here, not under shm/, so a future non-shm transport is a sibling directory, not a rename
+│   │   └── shm/
+│   │       ├── mapped_segment.{h,cpp}         # raw shm_open/mmap segment ownership
+│   │       ├── named_semaphore.{h,cpp}        # RAII named semaphore (sem_open); not sem_init/pshared -- see "Two distinct sync mechanisms"
+│   │       ├── control_block.{h,cpp}          # cursorMutex (claim-only) + write/read cursors; mutex-protected in v1/v2, lock-free atomics in v3
+│   │       ├── blocking_ring_buffer.{h,cpp}   # owns MappedSegment + two NamedSemaphores; slot acquire/commit
+│   │       └── shared_memory_transport.{h,cpp}  # ITransport impl: message framing over BlockingRingBuffer
 │   └── control/                   # [v2] -- does not exist in v1
 │       ├── controller.{h,cpp}     # Running/Paused/Stopped, std::condition_variable (in-process)
 │       └── signal_handler.{h,cpp} # SIGINT/SIGTERM -> controller, self-pipe or sigwait

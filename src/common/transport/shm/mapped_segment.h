@@ -1,5 +1,5 @@
-#ifndef IPC_COMMON_TRANSPORT_MAPPED_SEGMENT_H_
-#define IPC_COMMON_TRANSPORT_MAPPED_SEGMENT_H_
+#ifndef IPC_COMMON_TRANSPORT_SHM_MAPPED_SEGMENT_H_
+#define IPC_COMMON_TRANSPORT_SHM_MAPPED_SEGMENT_H_
 
 #include <cstddef>
 #include <optional>
@@ -38,4 +38,4 @@ class MappedSegment {
 
 }  // namespace ipc::common
 
-#endif  // IPC_COMMON_TRANSPORT_MAPPED_SEGMENT_H_
+#endif  // IPC_COMMON_TRANSPORT_SHM_MAPPED_SEGMENT_H_

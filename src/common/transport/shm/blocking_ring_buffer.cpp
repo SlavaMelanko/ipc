@@ -1,4 +1,4 @@
-#include "common/transport/blocking_ring_buffer.h"
+#include "common/transport/shm/blocking_ring_buffer.h"
 
 #include <sys/mman.h>
 
@@ -8,8 +8,8 @@
 #include <thread>
 #include <utility>
 
-#include "common/transport/control_block.h"
-#include "common/transport/ring_layout.h"
+#include "common/transport/shm/control_block.h"
+#include "common/transport/shm/ring_layout.h"
 #include "common/util/posix.h"
 #include "common/util/process.h"
 

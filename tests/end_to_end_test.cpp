@@ -15,7 +15,7 @@
 
 #include "common/message/checksum.h"
 #include "common/message/message.h"
-#include "common/transport/shared_memory_transport.h"
+#include "common/transport/shm/shared_memory_transport.h"
 #include "common/util/clock.h"
 #include "common/util/rand.h"
 

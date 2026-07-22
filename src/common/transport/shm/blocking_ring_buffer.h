@@ -1,13 +1,13 @@
-#ifndef IPC_COMMON_TRANSPORT_BLOCKING_RING_BUFFER_H_
-#define IPC_COMMON_TRANSPORT_BLOCKING_RING_BUFFER_H_
+#ifndef IPC_COMMON_TRANSPORT_SHM_BLOCKING_RING_BUFFER_H_
+#define IPC_COMMON_TRANSPORT_SHM_BLOCKING_RING_BUFFER_H_
 
 #include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
 
-#include "common/transport/mapped_segment.h"
-#include "common/transport/named_semaphore.h"
+#include "common/transport/shm/mapped_segment.h"
+#include "common/transport/shm/named_semaphore.h"
 
 namespace ipc::common {
 
@@ -75,4 +75,4 @@ class BlockingRingBuffer {
 
 }  // namespace ipc::common
 
-#endif  // IPC_COMMON_TRANSPORT_BLOCKING_RING_BUFFER_H_
+#endif  // IPC_COMMON_TRANSPORT_SHM_BLOCKING_RING_BUFFER_H_

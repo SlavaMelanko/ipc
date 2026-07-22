@@ -1,10 +1,10 @@
-#ifndef IPC_COMMON_TRANSPORT_SHARED_MEMORY_TRANSPORT_H_
-#define IPC_COMMON_TRANSPORT_SHARED_MEMORY_TRANSPORT_H_
+#ifndef IPC_COMMON_TRANSPORT_SHM_SHARED_MEMORY_TRANSPORT_H_
+#define IPC_COMMON_TRANSPORT_SHM_SHARED_MEMORY_TRANSPORT_H_
 
 #include <cstddef>
 #include <memory>
 
-#include "common/transport/blocking_ring_buffer.h"
+#include "common/transport/shm/blocking_ring_buffer.h"
 #include "common/transport/transport.h"
 
 namespace ipc::common {
@@ -35,4 +35,4 @@ class SharedMemoryTransport : public ITransport {
 
 }  // namespace ipc::common
 
-#endif  // IPC_COMMON_TRANSPORT_SHARED_MEMORY_TRANSPORT_H_
+#endif  // IPC_COMMON_TRANSPORT_SHM_SHARED_MEMORY_TRANSPORT_H_

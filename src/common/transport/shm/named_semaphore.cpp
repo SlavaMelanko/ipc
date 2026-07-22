@@ -1,4 +1,4 @@
-#include "common/transport/named_semaphore.h"
+#include "common/transport/shm/named_semaphore.h"
 
 #include <fcntl.h>
 

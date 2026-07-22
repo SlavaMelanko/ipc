@@ -4,7 +4,7 @@
 #include <utility>
 
 #include "common/control/control_panel.h"
-#include "common/transport/shared_memory_transport.h"
+#include "common/transport/shm/shared_memory_transport.h"
 #include "common/util/rand.h"
 #include "producer/payload/payload_generator_factory.h"
 #include "producer/transfer_engine.h"

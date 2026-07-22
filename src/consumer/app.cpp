@@ -6,7 +6,7 @@
 #include "common/control/control_panel.h"
 #include "common/message/header.h"
 #include "common/message/message_validator.h"
-#include "common/transport/shared_memory_transport.h"
+#include "common/transport/shm/shared_memory_transport.h"
 #include "consumer/stats_reporter.h"
 #include "consumer/transfer_engine.h"
 
