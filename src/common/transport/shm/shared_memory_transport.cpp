@@ -46,8 +46,7 @@ bool SharedMemoryTransport::Send(const Message& message) {
 ReceiveResult SharedMemoryTransport::Receive(Message& message) {
   std::byte* slot = ring_.AcquireReadSlot();
   if (slot == nullptr) {
-    // kPeerClosed and kError fold into kEndOfStream until Controller exists
-    // (see AGENTS.md's v2 build order).
+    // kPeerClosed and kError fold into kEndOfStream until Controller exists.
     return ReceiveResult::kEndOfStream;
   }
 

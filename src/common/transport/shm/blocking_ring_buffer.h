@@ -31,8 +31,8 @@ class BlockingRingBuffer {
   ~BlockingRingBuffer() = default;
 
   // Why AcquireReadSlot() last returned nullptr. Best-effort for kPeerClosed
-  // -- see AGENTS.md's "Waking a blocked send()/receive()" for the narrower
-  // gap that remains.
+  // -- a producer crash mid-cursor-claim can still leave the next claim
+  // blocked.
   enum class ReadFailure : std::uint8_t {
     kNone,
     kError,
@@ -53,8 +53,7 @@ class BlockingRingBuffer {
   [[nodiscard]] ReadFailure LastReadFailure() const { return lastReadFailure_; }
 
   // Producer-only: marks no more messages are coming, then Closed. A
-  // consumer blocked in AcquireReadSlot() notices within one poll interval
-  // -- see AGENTS.md's "Clean producer shutdown and the receive predicate".
+  // consumer blocked in AcquireReadSlot() notices within one poll interval.
   void Close();
 
  private:

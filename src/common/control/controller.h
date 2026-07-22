@@ -16,7 +16,7 @@ enum class RunState : std::uint8_t {
 // In-process Running/Paused/Stopped state, shared by a stdin control thread,
 // a signal handler thread, and the app's own send/receive loop. Cross-process
 // signaling (the ring's freeSlots/availableMessages semaphores) is a separate
-// mechanism -- see AGENTS.md's "Two distinct sync mechanisms".
+// mechanism.
 class Controller {
  public:
   void Pause();

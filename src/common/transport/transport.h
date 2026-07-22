@@ -7,7 +7,7 @@
 
 namespace ipc::common {
 
-// Stopped/PeerClosed wait for Controller (see AGENTS.md's v2 build order).
+// Stopped/PeerClosed wait for Controller.
 enum class ReceiveResult : std::uint8_t {
   kReceived,
   kMalformed,

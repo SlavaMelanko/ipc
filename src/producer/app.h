@@ -20,7 +20,7 @@ class App {
  private:
   ipc::common::AppConfig config_;
   // One per process lifetime -- lets a consumer distinguish a producer
-  // restart from data loss (see AGENTS.md's "Session ID").
+  // restart from data loss.
   std::uint64_t sessionId_;
 };
 

@@ -28,9 +28,9 @@ class TransferEngine {
 
   // Blocks for the next message and validates it on success. kEndOfStream on
   // a null transport, matching how other non-kReceived/kMalformed failures
-  // are folded in until Controller exists (see AGENTS.md's v2 build order).
-  // The returned message's payload span points into this engine's internal
-  // buffer -- valid only until the next ReceiveNext() call.
+  // are folded in until Controller exists. The returned message's payload
+  // span points into this engine's internal buffer -- valid only until the
+  // next ReceiveNext() call.
   ReceivedMessage ReceiveNext();
 
   [[nodiscard]] std::uint64_t ReceivedCount() const { return receivedCount_; }

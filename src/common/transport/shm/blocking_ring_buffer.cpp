@@ -174,8 +174,7 @@ std::byte* BlockingRingBuffer::AcquireReadSlot() {
     }
 
     // Timed out: no message yet. The producer finishing normally takes
-    // priority over a liveness check -- see "Waking a blocked
-    // send()/receive()" in AGENTS.md.
+    // priority over a liveness check.
     if (StateManager(Control()).IsStoppingOrClosed()) {
       lastReadFailure_ = ReadFailure::kEndOfStream;
       return nullptr;

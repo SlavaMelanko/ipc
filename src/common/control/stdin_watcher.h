@@ -11,9 +11,8 @@ namespace ipc::common {
 // 'p' pauses, 'r' resumes, 'q' stops -- and drives Controller accordingly.
 //
 // A blocking read() can't be woken by a condition variable, so shutdown
-// closes stdin's file descriptor to force the read to return (see AGENTS.md's
-// "Control loop and signal safety") rather than leaving the thread stuck
-// until process exit.
+// closes stdin's file descriptor to force the read to return, rather than
+// leaving the thread stuck until process exit.
 class StdinWatcher {
  public:
   explicit StdinWatcher(Controller& controller);

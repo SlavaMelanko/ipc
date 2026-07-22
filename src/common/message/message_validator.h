@@ -8,8 +8,7 @@
 namespace ipc::common {
 
 // Checksum + sessionId-aware sequence checking. A defect (checksum mismatch,
-// in-session sequence gap) increments errorCount rather than stopping --
-// see AGENTS.md's "Defect handling (consumer side)".
+// in-session sequence gap) increments errorCount rather than stopping.
 class MessageValidator {
  public:
   void Validate(const Message& message);

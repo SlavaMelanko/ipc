@@ -12,16 +12,15 @@ namespace ipc::consumer {
 
 // Prints one "total=<n> msgs/s=<n> throughput=<value><unit>" line per second
 // on a dedicated thread, driven by a steady_clock reference point rather than
-// repeated sleep_for(1s) (which drifts -- see AGENTS.md's StatsReporter
-// section). Cumulative and interval counters are separate atomic pairs:
-// resetting one to compute a rate must never disturb the running total.
-// total/msgs/s are printed with thousands separators via std::format's
-// "{:L}" against the process's environment locale (std::locale("")),
-// falling back to ungrouped digits if that locale can't be constructed
-// (e.g. an unconfigured LANG on a minimal machine) rather than letting the
-// exception escape this thread. throughput is scaled to B/KB/MB/GB
-// (decimal, base 1000) for readability, matching the GB/s = MB/s / 1000
-// convention already used in BENCHMARKS.md.
+// repeated sleep_for(1s) (which drifts). Cumulative and interval counters are
+// separate atomic pairs: resetting one to compute a rate must never disturb
+// the running total. total/msgs/s are printed with thousands separators via
+// std::format's "{:L}" against the process's environment locale
+// (std::locale("")), falling back to ungrouped digits if that locale can't
+// be constructed (e.g. an unconfigured LANG on a minimal machine) rather
+// than letting the exception escape this thread. throughput is scaled to
+// B/KB/MB/GB (decimal, base 1000) for readability, matching the
+// GB/s = MB/s / 1000 convention used elsewhere.
 class StatsReporter {
  public:
   StatsReporter();
@@ -31,8 +30,7 @@ class StatsReporter {
   StatsReporter& operator=(const StatsReporter&) = delete;
 
   // Called once per successfully received message; frameBytes is the full
-  // sizeof(Header) + payloadSize, not payload alone (see AGENTS.md's
-  // StatsReporter section on why frame bytes, not payload bytes).
+  // sizeof(Header) + payloadSize, not payload alone.
   void RecordMessage(std::size_t frameBytes);
 
  private:
