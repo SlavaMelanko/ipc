@@ -10,11 +10,25 @@ Initial scope is local IPC only.
 
 ## Quick start
 
+1. Install the required tooling and create the initial build directory.
+
 ```bash
-./scripts/setup.sh      # install tooling and configure the build (macOS, apt-based Linux)
-cmake --build build
-./build/producer-cli --count 50000 &
-./build/consumer-cli --count 50000
+./scripts/setup.sh
+```
+
+2. Generate and build the project in Release mode.
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release
+```
+
+3. Start the producer, then the consumer, using all supported command-line
+   arguments. Both processes must use the same values.
+
+```bash
+./build/producer-cli --count 50000 --payload-size 1024 --ring-capacity 8388608 &
+./build/consumer-cli --count 50000 --payload-size 1024 --ring-capacity 8388608
 ```
 
 ## Roadmap
