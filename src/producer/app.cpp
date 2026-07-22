@@ -32,6 +32,7 @@ bool App::Run() const {
     if (!controlPanel.WaitIfPaused()) {
       break;
     }
+
     if (!engine.SendNext()) {
       std::println(stderr, "producer: send failed at sequenceNumber={}", engine.SentCount());
 
