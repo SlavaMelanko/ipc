@@ -1,9 +1,49 @@
 #include "consumer/stats_reporter.h"
 
 #include <chrono>
+#include <format>
+#include <locale>
 #include <print>
+#include <string>
 
 namespace ipc::consumer {
+
+namespace {
+
+std::string FormatThroughput(std::uint64_t bytesPerSecond) {
+  constexpr double kKilo = 1000.0;
+
+  if (bytesPerSecond < static_cast<std::uint64_t>(kKilo)) {
+    return std::format("{}B", bytesPerSecond);
+  }
+
+  double value = static_cast<double>(bytesPerSecond) / kKilo;
+  if (value < kKilo) {
+    return std::format("{:.2f}KB", value);
+  }
+
+  value /= kKilo;
+  if (value < kKilo) {
+    return std::format("{:.2f}MB", value);
+  }
+
+  value /= kKilo;
+  return std::format("{:.2f}GB", value);
+}
+
+std::string FormatWithThousandsSeparator(std::uint64_t value) {
+  static const std::locale kLocale = [] {
+    try {
+      return std::locale("");
+    } catch (const std::runtime_error&) {
+      return std::locale::classic();  // No grouping, same as ungrouped digits.
+    }
+  }();
+
+  return std::format(kLocale, "{:L}", value);
+}
+
+}  // namespace
 
 StatsReporter::StatsReporter() : thread_(&StatsReporter::Run, this) {}
 
@@ -37,7 +77,8 @@ void StatsReporter::Run() {
     std::uint64_t bytes = intervalBytes_.exchange(0, std::memory_order_relaxed);
     std::uint64_t total = totalPackets_.load(std::memory_order_relaxed);
 
-    std::println("total={} pkts/s={} bytes/s={}", total, packets, bytes);
+    std::println("total={} pkts/s={} throughput={}", FormatWithThousandsSeparator(total),
+                 FormatWithThousandsSeparator(packets), FormatThroughput(bytes));
   }
 }
 

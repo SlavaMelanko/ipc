@@ -10,11 +10,18 @@
 
 namespace ipc::consumer {
 
-// Prints one "total=<n> pkts/s=<n> bytes/s=<n>" line per second on a
-// dedicated thread, driven by a steady_clock reference point rather than
+// Prints one "total=<n> pkts/s=<n> throughput=<value><unit>" line per second
+// on a dedicated thread, driven by a steady_clock reference point rather than
 // repeated sleep_for(1s) (which drifts -- see AGENTS.md's StatsReporter
 // section). Cumulative and interval counters are separate atomic pairs:
 // resetting one to compute a rate must never disturb the running total.
+// total/pkts/s are printed with thousands separators via std::format's
+// "{:L}" against the process's environment locale (std::locale("")),
+// falling back to ungrouped digits if that locale can't be constructed
+// (e.g. an unconfigured LANG on a minimal machine) rather than letting the
+// exception escape this thread. throughput is scaled to B/KB/MB/GB
+// (decimal, base 1000) for readability, matching the GB/s = MB/s / 1000
+// convention already used in BENCHMARKS.md.
 class StatsReporter {
  public:
   StatsReporter();
