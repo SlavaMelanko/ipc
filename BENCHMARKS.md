@@ -39,10 +39,23 @@ whole-pipeline throughput, not a transport-only benchmark).
   The change is a correctness/scalability win (no lock on the fast path,
   safe under real cross-core contention) rather than a throughput one at
   this payload range.
+- **Pattern-based payload generation** (replacing
+  `DeterministicPayloadGenerator`'s byte-at-a-time loop with a single
+  `memcpy` from a precomputed 256-byte pattern table plus prefix-doubling
+  copies — output is byte-for-byte identical): **+28% to +82%** end-to-end
+  throughput on the Ryzen, gain largest at small/mid payloads where the
+  producer was the sole bottleneck. Stage profiling showed generation had
+  been ~28% of producer CPU at 64 KB (5,578 ns → 550 ns per message).
+  After this change the consumer becomes the pacer at large payloads, and
+  CRC32 dominates both sides (~65–72% of per-message CPU) — the next
+  optimization target.
 
 ## Results
 
 ### Apple M4, macOS (Darwin 25.2.0, arm64)
+
+**Stale — predates pattern-based payload generation; re-measurement
+pending.** Numbers below are from the byte-at-a-time generator.
 
 | Payload | Count     | Ring Capacity | Avg msgs/s | Avg throughput |
 | ------- | --------- | ------------- | ---------- | -------------- |
@@ -55,15 +68,41 @@ whole-pipeline throughput, not a transport-only benchmark).
 
 ### AMD Ryzen 7 7700X, Ubuntu 26.04 LTS (x86_64)
 
+With pattern-based payload generation (throughput = msgs/s × frame size,
+i.e. payload + 32-byte header):
+
 | Payload | Count      | Ring Capacity | Avg msgs/s | Avg throughput |
 | ------- | ---------- | ------------- | ---------- | -------------- |
-| 1 KB    | 10,000,000 | 32 MB         | ~1,428,571 | ~1.51 GB/s     |
-| 4 KB    | 5,000,000  | 32 MB         | ~550,648   | ~2.27 GB/s     |
-| 8 KB    | 2,500,000  | 32 MB         | ~343,815   | ~2.83 GB/s     |
-| 16 KB   | 1,000,000  | 32 MB         | ~196,066   | ~3.22 GB/s     |
-| 32 KB   | 1,000,000  | 32 MB         | ~101,951   | ~3.34 GB/s     |
-| 64 KB   | 1,000,000  | 32 MB         | ~53,641    | ~3.52 GB/s     |
+| 1 KB    | 10,000,000 | 32 MB         | ~2,462,600 | ~2.60 GB/s     |
+| 4 KB    | 5,000,000  | 32 MB         | ~1,000,000 | ~4.13 GB/s     |
+| 8 KB    | 2,500,000  | 32 MB         | ~487,100   | ~4.01 GB/s     |
+| 16 KB   | 1,000,000  | 32 MB         | ~263,800   | ~4.33 GB/s     |
+| 32 KB   | 1,000,000  | 32 MB         | ~134,600   | ~4.41 GB/s     |
+| 64 KB   | 1,000,000  | 32 MB         | ~68,700    | ~4.51 GB/s     |
 
-The Ryzen machine is consistently faster than the M4 at every payload
-size tested (~1.4–2.2x), attributed to hardware (faster CPU/memory
-subsystem) rather than a code difference — both runs use the same build.
+## Profiling (Ryzen, after pattern-based generation)
+
+`/usr/bin/time -v` on real runs plus a per-stage microbenchmark.
+Whole-run view (voluntary context switches ≈ blocking waits):
+
+|              | 1 KB × 8M               | 64 KB × 300k                            |
+| ------------ | ----------------------- | --------------------------------------- |
+| Throughput   | ~2.5M msgs/s            | ~69.7k msgs/s (4.56 GB/s)               |
+| Producer CPU | 97%, 585 blocks — pacer | 96%, 48,587 blocks — waits on full ring |
+| Consumer CPU | 92%, 10,770 blocks      | 95%, 11 blocks — never waits, pacer     |
+
+Per-stage cost per message (share vs. measured ~14.1 µs/msg producer CPU):
+
+| Stage              | 1 KB    | 64 KB     | Share of producer CPU @ 64 KB   |
+| ------------------ | ------- | --------- | ------------------------------- |
+| CRC32 (zlib)       | 259 ns  | 10,235 ns | ~72%                            |
+| Payload generation | 13 ns   | 550 ns    | ~4%                             |
+| memcpy (in-cache)  | 8 ns    | 789 ns    | ~6% (real shm copy ~3 µs, ~20%) |
+| sem post+wait pair | 4.3 ns  | 4.3 ns    | ~0%                             |
+| CurrentTimestamp   | 16.5 ns | 16.5 ns   | ~0%                             |
+
+CRC32 dominates both processes (~65% of per-message CPU at 1 KB, ~72% at
+64 KB) and is the ~4.0–4.5 GB/s plateau: the consumer's CRC recomputation
+sets the pace while the producer blocks on a full ring. Faster CRC32
+(zlib-ng or hardware CRC32C) is the next target; everything else is
+negligible on Linux.
