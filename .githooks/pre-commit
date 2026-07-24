@@ -21,7 +21,8 @@ if command -v clang-tidy >/dev/null; then
   root="$(git rev-parse --show-toplevel)"
   # shellcheck disable=SC2086
   clang-tidy --warnings-as-errors=* $files -- -x c++ -std=c++23 -I"$root/src" \
-    -I"$root/build/_deps/cli11-src/include"
+    -I"$root/build/_deps/cli11-src/include" \
+    -I"$root/build/_deps/zlib-ng-build"
 else
   echo "pre-commit: skipping clang-tidy (not installed)" >&2
 fi

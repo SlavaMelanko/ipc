@@ -17,8 +17,11 @@ whole-pipeline throughput, not a transport-only benchmark).
   ./build-release/consumer-cli --count <N> --payload-size <P> --ring-capacity <R>
   ```
 
-- All results below use the current zlib-based CRC32 (`checksum.cpp`) and
-  lock-free (`std::atomic`-cursor) `SharedMemoryTransport`.
+- All results below use the lock-free (`std::atomic`-cursor)
+  `SharedMemoryTransport`. The Ryzen table uses the current zlib-ng CRC32
+  (`checksum.cpp`); the Apple M4 table predates the zlib-ng switch and was
+  measured with Apple's system libz (which already uses ARMv8 hardware CRC
+  instructions, so the expected gain from re-running it is small).
 
 ## Optimization history
 
@@ -52,6 +55,16 @@ whole-pipeline throughput, not a transport-only benchmark).
   After this change the consumer becomes the pacer at large payloads, and
   CRC32 dominates both sides (~65–72% of per-message CPU) — the next
   optimization target.
+- **zlib-ng CRC32** (replacing system zlib with zlib-ng 2.3.3 in native
+  mode, runtime-dispatched to PCLMULQDQ/VPCLMULQDQ on x86): CRC32
+  microbenchmark on the Ryzen goes from 4.4 to 43.9 GB/s at 1 KB (9.9×)
+  and 6.5 to 86.2 GB/s at 64 KB (13.2×), with byte-identical CRC values
+  (same IEEE 802.3 polynomial — no wire-format change). End-to-end:
+  **+101% at 1 KB, +209% to +282% at 4–64 KB** on the Ryzen. The
+  ~4.0–4.5 GB/s software-CRC plateau is gone; throughput now sits at
+  ~13–16 GB/s across 4–64 KB, so the pacer is the copy/wake path, not
+  CRC. At 1 KB, removing the CRC bottleneck exposed a bimodal regime —
+  see the note under the Ryzen results.
 
 ## Results
 
@@ -83,17 +96,35 @@ effects, not measurement noise.
 
 ### AMD Ryzen 7 7700X, Ubuntu 26.04 LTS (x86_64)
 
-With pattern-based payload generation (throughput = msgs/s × frame size,
-i.e. payload + 32-byte header):
+With zlib-ng CRC32 and pattern-based payload generation (throughput =
+msgs/s × frame size, i.e. payload + 32-byte header). Counts are raised
+from earlier revisions of this table so each run still lasts several
+seconds now that throughput is ~2–4× higher. Each row averages the full
+interval lines of two runs:
 
 | Payload | Count      | Ring Capacity | Avg msgs/s | Avg throughput |
 | ------- | ---------- | ------------- | ---------- | -------------- |
-| 1 KB    | 10,000,000 | 32 MB         | ~2,462,600 | ~2.60 GB/s     |
-| 4 KB    | 5,000,000  | 32 MB         | ~1,000,000 | ~4.13 GB/s     |
-| 8 KB    | 2,500,000  | 32 MB         | ~487,100   | ~4.01 GB/s     |
-| 16 KB   | 1,000,000  | 32 MB         | ~263,800   | ~4.33 GB/s     |
-| 32 KB   | 1,000,000  | 32 MB         | ~134,600   | ~4.41 GB/s     |
-| 64 KB   | 1,000,000  | 32 MB         | ~68,700    | ~4.51 GB/s     |
+| 1 KB    | 50,000,000 | 32 MB         | ~4,945,800 | ~5.22 GB/s     |
+| 4 KB    | 25,000,000 | 32 MB         | ~3,823,700 | ~15.78 GB/s    |
+| 8 KB    | 15,000,000 | 32 MB         | ~1,854,400 | ~15.25 GB/s    |
+| 16 KB   | 6,000,000  | 32 MB         | ~813,900   | ~13.36 GB/s    |
+| 32 KB   | 3,000,000  | 32 MB         | ~420,600   | ~13.80 GB/s    |
+| 64 KB   | 1,500,000  | 32 MB         | ~238,700   | ~15.65 GB/s    |
+
+**1 KB is bimodal, not noisy**: interval rates alternate between a
+~3.4 M msgs/s regime and an ~8.8 M msgs/s regime within a single run
+(the table's average mixes both). Pinning experiments rule out core
+placement as the cause — separate physical cores hold steady at
+~3.2 M msgs/s, SMT siblings at ~2.3 M, both on one core at ~0.45 M; no
+placement reproduces the fast mode. The likely mechanism is blocking
+behavior: POSIX semaphores only enter the kernel when a wait actually
+blocks (or a post has a sleeping waiter to wake). In the fast regime the
+ring hovers partially full and neither side ever blocks — pure userspace
+atomics; in the slow regime the consumer keeps draining the ring empty
+and every message pays a futex sleep/wake round trip. With CRC no longer
+pacing both sides, which regime the run settles into is metastable.
+8 KB and 16 KB show a milder version of the same effect (~22–27%
+interval stdev); 4/32/64 KB are stable (≤2.5%).
 
 ## Profiling (Ryzen, after pattern-based generation)
 
@@ -116,8 +147,12 @@ Per-stage cost per message (share vs. measured ~14.1 µs/msg producer CPU):
 | sem post+wait pair | 4.3 ns  | 4.3 ns    | ~0%                             |
 | CurrentTimestamp   | 16.5 ns | 16.5 ns   | ~0%                             |
 
-CRC32 dominates both processes (~65% of per-message CPU at 1 KB, ~72% at
-64 KB) and is the ~4.0–4.5 GB/s plateau: the consumer's CRC recomputation
-sets the pace while the producer blocks on a full ring. Faster CRC32
-(zlib-ng or hardware CRC32C) is the next target; everything else is
-negligible on Linux.
+CRC32 dominated both processes (~65% of per-message CPU at 1 KB, ~72% at
+64 KB) and was the ~4.0–4.5 GB/s plateau: the consumer's CRC
+recomputation set the pace while the producer blocked on a full ring.
+The zlib-ng switch (see optimization history) removed that plateau —
+CRC32 at 1 KB dropped from ~259 ns to ~24 ns per message per side. The
+remaining per-message costs are the two `memcpy`s and, at small
+payloads, the semaphore wake/sleep path when producer and consumer run
+in lockstep (see the 1 KB bimodality note above). The plausible next
+targets are batching wakes or the deferred zero-copy borrowed-slot API.

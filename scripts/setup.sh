@@ -33,13 +33,13 @@ case "$(uname)" in
   Linux)
     if ! command -v apt-get >/dev/null; then
       echo "Automated setup supports apt-based distros only." >&2
-      echo "Install: build-essential, cmake, gcc-15, g++-15, clang-format, clang-tidy, clangd, zlib1g-dev." >&2
+      echo "Install: build-essential, cmake, gcc-15, g++-15, clang-format, clang-tidy, clangd." >&2
       exit 1
     fi
     echo "installing tooling via apt..."
     sudo apt-get update
     sudo apt-get install -y build-essential cmake gcc-15 g++-15 clang-format \
-      clang-tidy clangd zlib1g-dev
+      clang-tidy clangd
     # Default apt gcc/g++ may be older than 15; pin explicitly.
     cmake_env=(CC=gcc-15 CXX=g++-15)
     ;;
