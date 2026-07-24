@@ -44,7 +44,10 @@ whole-pipeline throughput, not a transport-only benchmark).
   `memcpy` from a precomputed 256-byte pattern table plus prefix-doubling
   copies — output is byte-for-byte identical): **+28% to +82%** end-to-end
   throughput on the Ryzen, gain largest at small/mid payloads where the
-  producer was the sole bottleneck. Stage profiling showed generation had
+  producer was the sole bottleneck. On the Apple M4 the gain is far larger
+  (+123% at 1 KB to ~9× at 64 KB) — macOS's hardware-CRC32 libz meant
+  generation, not CRC, was the dominant cost there; see the M4 results
+  below. Stage profiling showed generation had
   been ~28% of producer CPU at 64 KB (5,578 ns → 550 ns per message).
   After this change the consumer becomes the pacer at large payloads, and
   CRC32 dominates both sides (~65–72% of per-message CPU) — the next
@@ -54,17 +57,29 @@ whole-pipeline throughput, not a transport-only benchmark).
 
 ### Apple M4, macOS (Darwin 25.2.0, arm64)
 
-**Stale — predates pattern-based payload generation; re-measurement
-pending.** Numbers below are from the byte-at-a-time generator.
+With pattern-based payload generation (throughput = msgs/s × frame size,
+i.e. payload + 32-byte header). Each row averages the full interval lines
+of two runs:
 
-| Payload | Count     | Ring Capacity | Avg msgs/s | Avg throughput |
-| ------- | --------- | ------------- | ---------- | -------------- |
-| 1 KB    | 4,000,000 | 32 MB         | ~657,200   | ~673.0 MB/s    |
-| 4 KB    | 3,000,000 | 32 MB         | ~400,110   | ~1638.8 MB/s   |
-| 8 KB    | 2,000,000 | 32 MB         | ~212,150   | ~1738.0 MB/s   |
-| 16 KB   | 1,000,000 | 32 MB         | ~111,110   | ~1820.4 MB/s   |
-| 32 KB   | 1,000,000 | 32 MB         | ~57,120    | ~1871.8 MB/s   |
-| 64 KB   | 1,000,000 | 32 MB         | ~28,940    | ~1896.6 MB/s   |
+| Payload | Count      | Ring Capacity | Avg msgs/s | Avg throughput |
+| ------- | ---------- | ------------- | ---------- | -------------- |
+| 1 KB    | 10,000,000 | 32 MB         | ~1,467,300 | ~1.55 GB/s     |
+| 4 KB    | 5,000,000  | 32 MB         | ~1,096,500 | ~4.53 GB/s     |
+| 8 KB    | 2,500,000  | 32 MB         | ~471,000   | ~3.87 GB/s     |
+| 16 KB   | 1,000,000  | 32 MB         | ~326,100   | ~5.35 GB/s     |
+| 32 KB   | 1,000,000  | 32 MB         | ~208,400   | ~6.84 GB/s     |
+| 64 KB   | 1,000,000  | 32 MB         | ~262,000   | ~17.18 GB/s    |
+
+The gains over the previous (byte-at-a-time generator) numbers are far
+larger than the Ryzen's — +123% at 1 KB up to roughly 9× at 64 KB —
+because Apple's system libz computes CRC32 with ARMv8 hardware
+instructions, so on macOS the byte-at-a-time generator, not CRC32, was the
+dominant producer cost (the old 64 KB result, ~1.9 GB/s, matches a
+~1 byte/cycle generation loop almost exactly). With generation reduced to
+a `memcpy`, macOS has no software-CRC plateau like the Ryzen's
+~4.0–4.5 GB/s. The curve is non-monotonic (dip at 8 KB, jump at 64 KB);
+both points reproduce across runs — likely cache/`memcpy`-strategy
+effects, not measurement noise.
 
 ### AMD Ryzen 7 7700X, Ubuntu 26.04 LTS (x86_64)
 
