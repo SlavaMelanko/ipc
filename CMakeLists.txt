@@ -12,7 +12,6 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 include(cmake/CompilerWarnings.cmake)
 
 find_package(Threads REQUIRED)
-find_package(ZLIB REQUIRED)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -20,7 +19,19 @@ FetchContent_Declare(
   GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git
   GIT_TAG v2.4.2
 )
-FetchContent_MakeAvailable(CLI11)
+# zlib-ng in native (non-compat) mode: hardware-accelerated CRC32 with runtime
+# SIMD dispatch, zng_-prefixed API so it can never collide with a system zlib.
+set(ZLIB_COMPAT OFF CACHE BOOL "" FORCE)
+set(ZLIB_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+set(ZLIBNG_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+set(WITH_GTEST OFF CACHE BOOL "" FORCE)
+set(WITH_GZFILEOP OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+  zlib-ng
+  GIT_REPOSITORY https://github.com/zlib-ng/zlib-ng.git
+  GIT_TAG 2.3.3
+)
+FetchContent_MakeAvailable(CLI11 zlib-ng)
 
 add_library(common_lib
   src/common/cli.cpp
@@ -38,7 +49,7 @@ add_library(common_lib
   src/common/util/process.cpp
 )
 target_include_directories(common_lib PUBLIC src)
-target_link_libraries(common_lib PUBLIC Threads::Threads CLI11::CLI11 ZLIB::ZLIB)
+target_link_libraries(common_lib PUBLIC Threads::Threads CLI11::CLI11 zlib-ng::zlib)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   target_link_libraries(common_lib PUBLIC rt)
 endif()
